@@ -12,7 +12,10 @@
     "icons": "node scripts/make-icons.mjs",
     "testpdfs": "node scripts/make-test-pdfs.mjs",
     "warmup": "node scripts/warmup.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "pdfjs-assets": "node scripts/copy-pdfjs-assets.mjs",
+    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
+    "postinstall": "node scripts/copy-pdfjs-assets.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

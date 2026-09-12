@@ -1,8 +1,6 @@
+import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { normalize } from '../search/normalize';
-
-const require_ = createRequire(import.meta.url);
 
 export type PdfTextPage = {
   pageNo: number;
@@ -21,13 +19,37 @@ function pdfjs(): Promise<PdfjsModule> {
   return pdfjsPromise;
 }
 
-/** Resource directories that ship inside pdfjs-dist. */
+/**
+ * Locate pdf.js's CMap tables and standard fonts on disk.
+ *
+ * Deliberately not require.resolve(): under a bundler that returns a numeric
+ * module id rather than a path, which fails at runtime in the production build
+ * only. These are copied into public/ at install and build time
+ * (scripts/copy-pdfjs-assets.mjs), which is also where the browser viewer
+ * loads them from.
+ */
+let assetsCache: { cMapUrl: string; standardFontDataUrl: string } | null = null;
+
 function pdfjsAssets() {
-  const base = path.dirname(require_.resolve('pdfjs-dist/package.json'));
-  return {
+  if (assetsCache) return assetsCache;
+
+  const roots = [
+    path.join(process.cwd(), 'public', 'pdfjs'),
+    path.join(process.cwd(), 'node_modules', 'pdfjs-dist'),
+  ];
+  const base = roots.find((dir) => fs.existsSync(path.join(dir, 'cmaps')));
+  if (!base) {
+    throw new Error(
+      'pdf.js assets not found. Run "npm run pdfjs-assets" to copy them into public/pdfjs. ' +
+        'Without the CMap tables, Japanese PDFs extract as empty text.',
+    );
+  }
+
+  assetsCache = {
     cMapUrl: `${path.join(base, 'cmaps')}${path.sep}`,
     standardFontDataUrl: `${path.join(base, 'standard_fonts')}${path.sep}`,
   };
+  return assetsCache;
 }
 
 export type PdfDocument = Awaited<ReturnType<PdfjsModule['getDocument']>['promise']>;

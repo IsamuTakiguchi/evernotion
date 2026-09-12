@@ -14,3 +14,5 @@ data/
 *.tsbuildinfo
 next-env.d.ts
 /tmp-test/
+.tmp/
+.screens/

@@ -7,7 +7,7 @@ import { api } from '@/lib/client/api';
 import { Logo } from './Logo';
 import {
   IconChevron, IconFile, IconGraph, IconMoon, IconPlus, IconSearch,
-  IconSettings, IconSparkles, IconSun, IconTrash,
+  IconSettings, IconSparkles, IconSun, IconTag, IconTrash,
 } from '@/components/ui/Icons';
 
 export type PageTreeNode = {
@@ -93,6 +93,7 @@ export function Sidebar({ onOpenSearch, tree, reloadTree }: Props) {
         </button>
         <NavLink href="/chat" active={pathname === '/chat'} icon={<IconSparkles size={16} />} label="AIチャット" />
         <NavLink href="/graph" active={pathname === '/graph'} icon={<IconGraph size={16} />} label="グラフ" />
+        <NavLink href="/tags" active={pathname.startsWith('/tags')} icon={<IconTag size={16} />} label="タグ" />
         <NavLink href="/settings" active={pathname === '/settings'} icon={<IconSettings size={16} />} label="設定" />
       </nav>
 
