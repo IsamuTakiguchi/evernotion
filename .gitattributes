@@ -1,0 +1,2 @@
+tests/fixtures/*.pdf -diff
+public/pdfjs/** linguist-vendored

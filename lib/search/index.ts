@@ -1,0 +1,107 @@
+import type { DB } from '../db/client';
+import { getDb } from '../db/client';
+import { ngramText } from './ngram';
+import { normalize } from './normalize';
+
+export type IndexInput =
+  | { kind: 'page'; pageId: string; title: string; body: string }
+  | { kind: 'pdf'; attachmentId: string; pdfPageNo: number; title: string; body: string };
+
+/**
+ * The one and only writer of the search index.
+ *
+ * Deliberately app-level rather than SQL triggers: a trigger would have to call
+ * a JS-registered function to build n-grams, and that function only exists on
+ * connections that registered it. A migration runner or a sqlite3 shell
+ * touching the table would then fail or, worse, write a half-built index.
+ * Always call inside the same transaction as the row it indexes.
+ */
+export function indexSearchDoc(db: DB, input: IndexInput): void {
+  const title = normalize(input.title);
+  const body = normalize(input.body);
+
+  const existing =
+    input.kind === 'page'
+      ? (db.prepare(`SELECT rowid FROM search_docs WHERE kind = 'page' AND page_id = ?`).get(input.pageId) as { rowid: number } | undefined)
+      : (db.prepare(`SELECT rowid FROM search_docs WHERE kind = 'pdf' AND attachment_id = ? AND pdf_page_no = ?`).get(input.attachmentId, input.pdfPageNo) as { rowid: number } | undefined);
+
+  let rowid: number;
+  if (existing) {
+    rowid = existing.rowid;
+    db.prepare(`UPDATE search_docs SET title = ?, body = ?, updated_at = datetime('now') WHERE rowid = ?`)
+      .run(title, body, rowid);
+  } else {
+    const info = db
+      .prepare(
+        `INSERT INTO search_docs (kind, page_id, attachment_id, pdf_page_no, title, body)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.kind,
+        input.kind === 'page' ? input.pageId : null,
+        input.kind === 'pdf' ? input.attachmentId : null,
+        input.kind === 'pdf' ? input.pdfPageNo : null,
+        title,
+        body,
+      );
+    rowid = Number(info.lastInsertRowid);
+  }
+
+  db.prepare('DELETE FROM fts_docs WHERE rowid = ?').run(rowid);
+  db.prepare('INSERT INTO fts_docs(rowid, title_ng, body_ng) VALUES (?, ?, ?)')
+    .run(rowid, ngramText(title), ngramText(body));
+}
+
+export function removeSearchDoc(
+  db: DB,
+  where: { kind: 'page'; pageId: string } | { kind: 'pdf'; attachmentId: string },
+): void {
+  const rows =
+    where.kind === 'page'
+      ? (db.prepare(`SELECT rowid FROM search_docs WHERE kind = 'page' AND page_id = ?`).all(where.pageId) as { rowid: number }[])
+      : (db.prepare(`SELECT rowid FROM search_docs WHERE kind = 'pdf' AND attachment_id = ?`).all(where.attachmentId) as { rowid: number }[]);
+
+  for (const { rowid } of rows) {
+    db.prepare('DELETE FROM fts_docs WHERE rowid = ?').run(rowid);
+    db.prepare('DELETE FROM search_docs WHERE rowid = ?').run(rowid);
+  }
+}
+
+/** Compact the FTS index. Worth running after a bulk ingest. */
+export function optimizeIndex(): void {
+  getDb().prepare(`INSERT INTO fts_docs(fts_docs) VALUES ('optimize')`).run();
+}
+
+/** Rebuild the whole index from pages and pdf_pages. */
+export function rebuildIndex(): { pages: number; pdfPages: number } {
+  const db = getDb();
+  const pages = db.prepare('SELECT id, title, plain_text FROM pages').all() as {
+    id: string; title: string; plain_text: string;
+  }[];
+  const pdfPages = db
+    .prepare(
+      `SELECT pp.attachment_id, pp.page_no, pp.text, a.filename
+         FROM pdf_pages pp JOIN attachments a ON a.id = pp.attachment_id`,
+    )
+    .all() as { attachment_id: string; page_no: number; text: string; filename: string }[];
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM fts_docs').run();
+    db.prepare('DELETE FROM search_docs').run();
+    for (const p of pages) {
+      indexSearchDoc(db, { kind: 'page', pageId: p.id, title: p.title, body: p.plain_text });
+    }
+    for (const pp of pdfPages) {
+      indexSearchDoc(db, {
+        kind: 'pdf',
+        attachmentId: pp.attachment_id,
+        pdfPageNo: pp.page_no,
+        title: `${pp.filename} p.${pp.page_no}`,
+        body: pp.text,
+      });
+    }
+  });
+  tx();
+  optimizeIndex();
+  return { pages: pages.length, pdfPages: pdfPages.length };
+}

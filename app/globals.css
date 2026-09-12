@@ -1,0 +1,264 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+}
+
+/*
+ * Palette. Light is Notion-ish warm neutral; dark is a deep slate.
+ * Every token is defined here so a theme override only has to redefine values.
+ */
+:root {
+  --bg: #ffffff;
+  --bg-subtle: #f7f7f5;
+  --bg-sidebar: #fbfbfa;
+  --bg-hover: #ecebe9;
+  --bg-active: #e3e2df;
+  --border: #e9e9e7;
+  --text: #37352f;
+  --text-muted: #787774;
+  --text-faint: #9b9a97;
+  --accent: #6366f1;
+  --accent-soft: #eef2ff;
+  --accent-text: #4f46e5;
+  --mark: #fef3c7;
+  --mark-text: #713f12;
+  --danger: #e03e3e;
+  --shadow: 0 1px 2px rgba(15, 15, 15, .06), 0 4px 12px rgba(15, 15, 15, .08);
+}
+
+.dark {
+  --bg: #191919;
+  --bg-subtle: #202020;
+  --bg-sidebar: #202020;
+  --bg-hover: #2c2c2c;
+  --bg-active: #373737;
+  --border: #2f2f2f;
+  --text: #e6e6e4;
+  --text-muted: #9b9a97;
+  --text-faint: #6f6f6c;
+  --accent: #818cf8;
+  --accent-soft: #262a45;
+  --accent-text: #a5b4fc;
+  --mark: #6b5417;
+  --mark-text: #fde68a;
+  --danger: #ff6369;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .4);
+}
+
+* { border-color: var(--border); }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+
+/* Thin scrollbars, so panels don't get a chunky OS bar down the side. */
+* { scrollbar-width: thin; scrollbar-color: var(--bg-active) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--bg-active); border-radius: 99px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+mark, .ev-mark {
+  background: var(--mark);
+  color: var(--mark-text);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* ---------------------------------------------------------------- editor -- */
+
+.ev-editor .ProseMirror {
+  outline: none;
+  min-height: 60vh;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+.ev-editor .ProseMirror > * + * { margin-top: 2px; }
+.ev-editor .ProseMirror p { padding: 3px 2px; min-height: 1.75em; }
+
+.ev-editor .ProseMirror h1,
+.ev-editor .ProseMirror h2,
+.ev-editor .ProseMirror h3 {
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.ev-editor .ProseMirror h1 { font-size: 1.875rem; margin-top: 1.75rem; }
+.ev-editor .ProseMirror h2 { font-size: 1.5rem;   margin-top: 1.4rem; }
+.ev-editor .ProseMirror h3 { font-size: 1.25rem;  margin-top: 1.1rem; }
+
+.ev-editor .ProseMirror ul,
+.ev-editor .ProseMirror ol { padding-left: 1.6rem; }
+.ev-editor .ProseMirror ul { list-style: disc; }
+.ev-editor .ProseMirror ol { list-style: decimal; }
+.ev-editor .ProseMirror li { padding: 2px 0; }
+.ev-editor .ProseMirror li p { padding: 0; }
+
+.ev-editor .ProseMirror blockquote {
+  border-left: 3px solid var(--text);
+  padding-left: 14px;
+  margin: 6px 0;
+}
+
+.ev-editor .ProseMirror pre {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow-x: auto;
+  tab-size: 2;
+}
+.ev-editor .ProseMirror code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.ev-editor .ProseMirror pre code { background: none; padding: 0; font-size: inherit; }
+
+.ev-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.2rem 0;
+}
+
+.ev-editor .ProseMirror img {
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 6px 0;
+}
+
+/* Placeholder on the focused empty line, like Notion's "Type '/' for commands". */
+.ev-editor .ProseMirror p.is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Task list */
+.ev-editor .ProseMirror ul[data-type="taskList"] { list-style: none; padding-left: 2px; }
+.ev-editor .ProseMirror ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
+.ev-editor .ProseMirror ul[data-type="taskList"] li > label { margin-top: .45em; }
+.ev-editor .ProseMirror ul[data-type="taskList"] li > div { flex: 1 1 auto; }
+.ev-editor .ProseMirror input[type="checkbox"] {
+  accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer;
+}
+.ev-editor .ProseMirror li[data-checked="true"] > div { color: var(--text-faint); text-decoration: line-through; }
+
+/* Tables */
+.ev-editor .ProseMirror table {
+  border-collapse: collapse; width: 100%; margin: 10px 0; table-layout: fixed;
+}
+.ev-editor .ProseMirror th,
+.ev-editor .ProseMirror td {
+  border: 1px solid var(--border); padding: 6px 10px; vertical-align: top;
+}
+.ev-editor .ProseMirror th { background: var(--bg-subtle); font-weight: 600; text-align: left; }
+.ev-editor .ProseMirror .selectedCell::after {
+  content: ''; position: absolute; inset: 0; background: var(--accent-soft); pointer-events: none;
+}
+
+/* Callout */
+.ev-editor .ProseMirror .ev-callout {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--bg-subtle); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px 14px; margin: 8px 0;
+}
+.ev-editor .ProseMirror .ev-callout > .ev-callout-emoji { font-size: 1.1rem; line-height: 1.6; user-select: none; }
+.ev-editor .ProseMirror .ev-callout > .ev-callout-body { flex: 1 1 auto; min-width: 0; }
+
+/* Toggle */
+.ev-editor .ProseMirror details { margin: 4px 0; }
+.ev-editor .ProseMirror details > summary {
+  cursor: pointer; list-style: none; font-weight: 500; padding: 3px 2px;
+}
+.ev-editor .ProseMirror details > summary::-webkit-details-marker { display: none; }
+.ev-editor .ProseMirror details > summary::before {
+  content: '▸'; display: inline-block; width: 1.1em; color: var(--text-muted);
+  transition: transform .12s ease;
+}
+.ev-editor .ProseMirror details[open] > summary::before { transform: rotate(90deg); }
+.ev-editor .ProseMirror details > div { padding-left: 1.5rem; }
+
+/* Wikilink */
+.ev-wikilink {
+  color: var(--accent-text);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  cursor: pointer;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+.ev-wikilink:hover { background: var(--accent-soft); }
+.ev-wikilink[data-unresolved="true"] {
+  color: var(--text-faint);
+  border-bottom-style: dashed;
+}
+
+/* Drag handle rail: the gutter the hover handle lives in. */
+.ev-editor { position: relative; }
+.ev-drag-handle {
+  position: absolute;
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 24px;
+  border-radius: 4px;
+  color: var(--text-faint);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity .12s ease, background .12s ease;
+  user-select: none;
+  z-index: 20;
+}
+.ev-drag-handle[data-visible="true"] { opacity: 1; }
+.ev-drag-handle:hover { background: var(--bg-hover); color: var(--text-muted); }
+.ev-drag-handle:active { cursor: grabbing; }
+.ProseMirror .ev-drop-target { box-shadow: 0 2px 0 0 var(--accent); }
+
+/* Syntax highlighting (lowlight/highlight.js class names). */
+.hljs-comment, .hljs-quote { color: var(--text-faint); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #c678dd; }
+.hljs-string, .hljs-regexp, .hljs-addition { color: #98c379; }
+.hljs-number, .hljs-built_in, .hljs-attr { color: #d19a66; }
+.hljs-title, .hljs-name, .hljs-section { color: #61afef; }
+.hljs-variable, .hljs-template-variable, .hljs-attribute { color: #e06c75; }
+
+/* --------------------------------------------------------- pdf text layer -- */
+/*
+ * pdf.js positions these spans absolutely to match the rendered page. They are
+ * transparent: they exist for selection and for highlighting matches.
+ */
+.pdf-text-layer {
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1;
+  transform-origin: 0 0;
+  --scale-factor: 1;
+}
+.pdf-text-layer span {
+  position: absolute;
+  white-space: pre;
+  color: transparent;
+  transform-origin: 0 0;
+}
+.pdf-text-layer mark {
+  background: color-mix(in srgb, #facc15 60%, transparent);
+  color: transparent;
+  border-radius: 2px;
+}
