@@ -15,7 +15,9 @@
     "smoke": "node scripts/smoke.mjs",
     "pdfjs-assets": "node scripts/copy-pdfjs-assets.mjs",
     "prebuild": "node scripts/copy-pdfjs-assets.mjs",
-    "postinstall": "node scripts/copy-pdfjs-assets.mjs"
+    "postinstall": "node scripts/copy-pdfjs-assets.mjs",
+    "e2e": "node scripts/e2e.mjs",
+    "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

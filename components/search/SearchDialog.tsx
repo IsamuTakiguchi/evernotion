@@ -58,10 +58,14 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
 
   const open = (hit: SearchHit) => {
     if (hit.kind === 'pdf' && hit.attachmentId) {
-      const target = hit.pageId ? `/p/${hit.pageId}` : '/';
-      router.push(
-        `${target}?file=${hit.attachmentId}&page=${hit.pdfPageNo ?? 1}&q=${encodeURIComponent(q)}`,
-      );
+      if (hit.pageId) {
+        router.push(
+          `/p/${hit.pageId}?file=${hit.attachmentId}&page=${hit.pdfPageNo ?? 1}&q=${encodeURIComponent(q)}`,
+        );
+      } else {
+        // Uploaded outside a note, so there is no page to open it in.
+        window.open(`/api/attachments/${hit.attachmentId}/file#page=${hit.pdfPageNo ?? 1}`, '_blank');
+      }
     } else if (hit.pageId) {
       router.push(`/p/${hit.pageId}?q=${encodeURIComponent(q)}`);
     }

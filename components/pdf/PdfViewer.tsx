@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/client/api';
 import { IconChevron, IconSpinner } from '@/components/ui/Icons';
 
@@ -12,21 +12,55 @@ type Props = {
   highlight?: string;
 };
 
+type LoadedDoc = Awaited<ReturnType<typeof loadDocument>>;
+
+async function loadDocument(attachmentId: string) {
+  // Must run before pdf.js is evaluated: it calls Map#getOrInsertComputed,
+  // which no shipped browser has yet.
+  await import('@/lib/pdf/map-upsert-polyfill');
+  const pdfjs = await import('pdfjs-dist');
+  // The worker ships with the package; resolving it through a bundler URL keeps
+  // the viewer working offline, with no CDN involved.
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.mjs',
+    import.meta.url,
+  ).toString();
+
+  // CMaps and the standard fonts are served from /public (put there by
+  // scripts/copy-pdfjs-assets.mjs), so Japanese PDFs render with no network.
+  const task = pdfjs.getDocument({
+    url: `/api/attachments/${attachmentId}/file`,
+    cMapUrl: '/pdfjs/cmaps/',
+    cMapPacked: true,
+    standardFontDataUrl: '/pdfjs/standard_fonts/',
+  });
+  return { pdfjs, task, doc: await task.promise };
+}
+
 /**
- * Canvas-based PDF viewer.
+ * Canvas-based PDF viewer with a text layer for selection and highlighting.
  *
- * Renders with pdf.js in the browser and, on top of it, positions the text
- * layer so a search term can be highlighted. Pages that came from OCR have no
- * text layer at all, so for those the extracted text is shown beneath the page
- * instead — the match is still visible, just not overlaid on the image.
+ * The document is loaded once per attachment and kept; only the page is
+ * re-rendered when paging. Reloading the document per page would both redo the
+ * parse and race the in-flight render, which cancels it midway and leaves a
+ * half-painted canvas with no text layer at all.
+ *
+ * Pages that came from OCR have no text layer, so for those the recognised
+ * text is offered below the page instead.
  */
 export function PdfViewer({ attachmentId, initialPage = 1, highlight = '' }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
-  const renderTask = useRef<{ cancel: () => void } | null>(null);
+  /** Measured for the render scale. The canvas wrapper shrinks to the canvas,
+      so measuring that instead would be circular. */
+  const frameRef = useRef<HTMLDivElement>(null);
+  const docRef = useRef<LoadedDoc | null>(null);
+  const renderToken = useRef(0);
+
+  const [loaded, setLoaded] = useState(0); // bumped when a document becomes ready
   const [pageNo, setPageNo] = useState(Math.max(1, initialPage));
   const [numPages, setNumPages] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [rendering, setRendering] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pageTexts, setPageTexts] = useState<PdfPageText[]>([]);
 
@@ -39,79 +73,112 @@ export function PdfViewer({ attachmentId, initialPage = 1, highlight = '' }: Pro
       .catch(() => setPageTexts([]));
   }, [attachmentId]);
 
-  const render = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const pdfjs = await import('pdfjs-dist');
-      // The worker ships with the package; point at it via a bundler URL so no
-      // CDN is involved and the viewer works offline.
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.mjs',
-        import.meta.url,
-      ).toString();
-
-      // cMaps and the standard fonts are served from /public, so Japanese PDFs
-      // render correctly with no CDN and no network.
-      const loadingTask = pdfjs.getDocument({
-        url: `/api/attachments/${attachmentId}/file`,
-        cMapUrl: '/pdfjs/cmaps/',
-        cMapPacked: true,
-        standardFontDataUrl: '/pdfjs/standard_fonts/',
-      });
-      const doc = await loadingTask.promise;
-
-      setNumPages(doc.numPages);
-      const clamped = Math.min(Math.max(1, pageNo), doc.numPages);
-      const page = await doc.getPage(clamped);
-
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const container = canvas.parentElement!;
-      const unscaled = page.getViewport({ scale: 1 });
-      const scale = (container.clientWidth || 680) / unscaled.width;
-      const viewport = page.getViewport({ scale });
-      const dpr = window.devicePixelRatio || 1;
-
-      canvas.width = Math.floor(viewport.width * dpr);
-      canvas.height = Math.floor(viewport.height * dpr);
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-
-      const ctx = canvas.getContext('2d')!;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      renderTask.current?.cancel();
-      const task = page.render({ canvasContext: ctx, viewport, canvas });
-      renderTask.current = { cancel: () => task.cancel() };
-      await task.promise;
-
-      // Text layer, for selection and highlighting.
-      const layer = textLayerRef.current;
-      if (layer) {
-        layer.replaceChildren();
-        layer.style.width = `${viewport.width}px`;
-        layer.style.height = `${viewport.height}px`;
-        const textContent = await page.getTextContent();
-        const textLayer = new pdfjs.TextLayer({ textContentSource: textContent, container: layer, viewport });
-        await textLayer.render();
-        if (highlight) markMatches(layer, highlight);
-      }
-
-      await loadingTask.destroy();
-    } catch (err) {
-      const message = (err as Error).message;
-      // A cancelled render is the expected result of paging quickly.
-      if (!/cancel/i.test(message)) setError(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [attachmentId, pageNo, highlight]);
-
+  // --- load the document once per attachment ------------------------------
   useEffect(() => {
-    void render();
-    return () => renderTask.current?.cancel();
-  }, [render]);
+    let cancelled = false;
+    setError(null);
+    setRendering(true);
+
+    loadDocument(attachmentId)
+      .then((loadedDoc) => {
+        if (cancelled) {
+          void loadedDoc.task.destroy();
+          return;
+        }
+        docRef.current = loadedDoc;
+        setNumPages(loadedDoc.doc.numPages);
+        setLoaded((n) => n + 1);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError((err as Error).message);
+        setRendering(false);
+      });
+
+    return () => {
+      cancelled = true;
+      const current = docRef.current;
+      docRef.current = null;
+      void current?.task.destroy();
+    };
+  }, [attachmentId]);
+
+  // --- render the current page -------------------------------------------
+  useEffect(() => {
+    const loadedDoc = docRef.current;
+    const canvas = canvasRef.current;
+    if (!loadedDoc || !canvas) return;
+
+    // Each run claims a token, so a superseded run drops its results rather
+    // than painting over a newer one.
+    const token = ++renderToken.current;
+    let renderTask: { cancel: () => void } | null = null;
+    setRendering(true);
+
+    void (async () => {
+      try {
+        const clamped = Math.min(Math.max(1, pageNo), loadedDoc.doc.numPages);
+        const page = await loadedDoc.doc.getPage(clamped);
+        if (token !== renderToken.current) return;
+
+        const available = frameRef.current?.clientWidth || 680;
+        const unscaled = page.getViewport({ scale: 1 });
+        const scale = available / unscaled.width;
+        const viewport = page.getViewport({ scale });
+        const dpr = window.devicePixelRatio || 1;
+
+        canvas.width = Math.floor(viewport.width * dpr);
+        canvas.height = Math.floor(viewport.height * dpr);
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
+
+        // pdf.js v6 takes the canvas and obtains its own context; passing both
+        // `canvas` and `canvasContext` is unsupported and leaves the render
+        // promise unsettled, so the page paints but nothing downstream of the
+        // await ever runs. Device-pixel scaling goes through `transform`.
+        const task = page.render({
+          canvas,
+          viewport,
+          transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
+        });
+        renderTask = { cancel: () => task.cancel() };
+        await task.promise;
+        if (token !== renderToken.current) return;
+
+        const layer = textLayerRef.current;
+        if (layer) {
+          layer.replaceChildren();
+          layer.style.width = `${viewport.width}px`;
+          layer.style.height = `${viewport.height}px`;
+          // pdf.js sizes the spans from this variable; without it every one of
+          // them lands in the wrong place.
+          layer.style.setProperty('--scale-factor', String(scale));
+
+          const textContent = await page.getTextContent();
+          if (token !== renderToken.current) return;
+
+          const textLayer = new loadedDoc.pdfjs.TextLayer({
+            textContentSource: textContent,
+            container: layer,
+            viewport,
+          });
+          await textLayer.render();
+          if (token !== renderToken.current) return;
+          if (highlight) markMatches(layer, highlight);
+        }
+
+        page.cleanup();
+      } catch (err) {
+        const message = (err as Error).message;
+        // Cancellation is the normal result of paging quickly, not a failure.
+        if (token === renderToken.current && !/cancel/i.test(message)) setError(message);
+      } finally {
+        if (token === renderToken.current) setRendering(false);
+      }
+    })();
+
+    return () => renderTask?.cancel();
+  }, [loaded, pageNo, highlight]);
 
   const current = pageTexts.find((p) => p.pageNo === pageNo);
   const isOcr = current?.source === 'ocr';
@@ -139,20 +206,21 @@ export function PdfViewer({ attachmentId, initialPage = 1, highlight = '' }: Pro
           <IconChevron size={15} />
         </button>
         {isOcr && (
-          <span className="rounded px-1.5 py-0.5 text-[11px]" style={{ background: 'var(--accent-soft)', color: 'var(--accent-text)' }}>
+          <span
+            className="rounded px-1.5 py-0.5 text-[11px]"
+            style={{ background: 'var(--accent-soft)', color: 'var(--accent-text)' }}
+          >
             OCR
           </span>
         )}
-        {loading && <IconSpinner size={14} className="ml-auto opacity-60" />}
+        {rendering && <IconSpinner size={14} className="ml-auto opacity-60" />}
       </div>
 
-      <div className="relative mx-auto" style={{ background: '#fff' }}>
-        <canvas ref={canvasRef} className="block max-w-full" />
-        <div
-          ref={textLayerRef}
-          className="pdf-text-layer pointer-events-none absolute left-0 top-0"
-          aria-hidden="true"
-        />
+      <div ref={frameRef} className="w-full">
+        <div className="relative mx-auto w-fit" style={{ background: '#fff' }}>
+          <canvas ref={canvasRef} className="block max-w-full" />
+          <div ref={textLayerRef} className="pdf-text-layer absolute left-0 top-0" />
+        </div>
       </div>
 
       {error && (
@@ -175,7 +243,13 @@ export function PdfViewer({ attachmentId, initialPage = 1, highlight = '' }: Pro
   );
 }
 
-/** Wrap occurrences of the term in the rendered text layer spans. */
+/**
+ * Wrap occurrences of the term in the rendered text-layer spans.
+ *
+ * pdf.js emits one span per positioned run, so a term split across two runs is
+ * missed; matching within each span covers the common case without disturbing
+ * the layout pdf.js computed.
+ */
 function markMatches(layer: HTMLElement, term: string) {
   const needle = term.trim().toLowerCase();
   if (!needle) return;
@@ -183,9 +257,11 @@ function markMatches(layer: HTMLElement, term: string) {
     const text = span.textContent ?? '';
     const at = text.toLowerCase().indexOf(needle);
     if (at < 0) continue;
+    const mark = document.createElement('mark');
+    mark.textContent = text.slice(at, at + needle.length);
     span.replaceChildren(
       document.createTextNode(text.slice(0, at)),
-      Object.assign(document.createElement('mark'), { textContent: text.slice(at, at + needle.length) }),
+      mark,
       document.createTextNode(text.slice(at + needle.length)),
     );
   }

@@ -246,9 +246,10 @@ mark, .ev-mark {
  */
 .pdf-text-layer {
   overflow: hidden;
-  opacity: 1;
   line-height: 1;
   transform-origin: 0 0;
+  /* pdf.js reads --scale-factor to size each span; the viewer sets the real
+     value at render time, and this is only a safe default. */
   --scale-factor: 1;
 }
 .pdf-text-layer span {

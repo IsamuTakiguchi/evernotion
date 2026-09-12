@@ -84,7 +84,8 @@ function matchRows(
   }
   if (o.tag) {
     filters.push(
-      `d.page_id IN (SELECT pt.page_id FROM page_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name = ?)`,
+      `COALESCE(d.page_id, a.page_id) IN
+         (SELECT pt.page_id FROM page_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.name = ?)`,
     );
     args.push(o.tag);
   }
@@ -99,13 +100,17 @@ function matchRows(
            FROM fts_docs WHERE fts_docs MATCH ?
           ORDER BY rank LIMIT 300
        )
-       SELECT d.rowid, d.kind, d.page_id, d.attachment_id, d.pdf_page_no,
+       SELECT d.rowid, d.kind, d.attachment_id, d.pdf_page_no,
               d.title, d.body, h.rank,
+              -- A pdf row has no page of its own; it belongs to whichever note
+              -- the attachment was uploaded into, and that is where a click on
+              -- the result has to land.
+              COALESCE(d.page_id, a.page_id) AS page_id,
               p.icon, p.title AS page_title, a.filename
          FROM hits h
          JOIN search_docs d ON d.rowid = h.doc_id
-         LEFT JOIN pages p ON p.id = d.page_id AND p.archived_at IS NULL
          LEFT JOIN attachments a ON a.id = d.attachment_id
+         LEFT JOIN pages p ON p.id = COALESCE(d.page_id, a.page_id) AND p.archived_at IS NULL
         WHERE (d.kind <> 'page' OR p.id IS NOT NULL)
           ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
         ORDER BY h.rank
@@ -136,12 +141,13 @@ function likeRows(
 
   return getDb()
     .prepare(
-      `SELECT d.rowid, d.kind, d.page_id, d.attachment_id, d.pdf_page_no,
+      `SELECT d.rowid, d.kind, d.attachment_id, d.pdf_page_no,
               d.title, d.body, 0 AS rank,
+              COALESCE(d.page_id, a.page_id) AS page_id,
               p.icon, p.title AS page_title, a.filename
          FROM search_docs d
-         LEFT JOIN pages p ON p.id = d.page_id AND p.archived_at IS NULL
          LEFT JOIN attachments a ON a.id = d.attachment_id
+         LEFT JOIN pages p ON p.id = COALESCE(d.page_id, a.page_id) AND p.archived_at IS NULL
         WHERE (d.title LIKE ? ESCAPE '\\' OR d.body LIKE ? ESCAPE '\\')
           ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
         ORDER BY d.updated_at DESC

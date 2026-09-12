@@ -228,6 +228,10 @@ async function main() {
     check('text inside a PDF is searchable', pdfHits.length > 0);
     check('a PDF hit points at the page it was found on',
       pdfHits[0]?.pdfPageNo >= 1 && !!pdfHits[0]?.attachmentId);
+    // A pdf search row stores no page of its own, so this has to be resolved
+    // through the attachment — otherwise clicking the result goes nowhere.
+    check('a PDF hit carries the note it was uploaded into',
+      pdfHits[0]?.pageId === noteId, `got ${pdfHits[0]?.pageId}`);
 
     const scanHits = (await searchHits('秘密保持', '&kind=pdf')).filter(
       (h) => h.filename === 'fixture-scan.pdf',

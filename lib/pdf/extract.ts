@@ -15,7 +15,11 @@ let pdfjsPromise: Promise<PdfjsModule> | null = null;
 
 function pdfjs(): Promise<PdfjsModule> {
   // The legacy build is the one meant for Node; the modern build assumes DOM APIs.
-  pdfjsPromise ??= import('pdfjs-dist/legacy/build/pdf.mjs');
+  // The polyfill goes first: pdf.js uses Map#getOrInsertComputed, which Node 22
+  // does not have, and some documents reach those code paths during parsing.
+  pdfjsPromise ??= import('./map-upsert-polyfill').then(
+    () => import('pdfjs-dist/legacy/build/pdf.mjs'),
+  );
   return pdfjsPromise;
 }
 

@@ -102,7 +102,8 @@ npm start          # 本番サーバー
 npm run typecheck  # 型チェック
 npm run warmup     # モデルを事前取得（オフライン運用の準備）
 npm run testpdfs   # テスト用の日本語PDFを生成
-npm run smoke      # E2Eスモークテスト（別ターミナルでサーバーを起動しておく）
+npm run smoke      # APIレベルのE2Eテスト（別ターミナルでサーバーを起動しておく）
+npm run e2e        # ブラウザ操作のE2Eテスト（同上）
 npm run icons      # assets/icon.svg からアイコン一式を生成
 ```
 
@@ -113,10 +114,18 @@ npm run testpdfs
 EVERNOTION_DATA_DIR=./.tmp/smoke npm run build
 EVERNOTION_DATA_DIR=./.tmp/smoke npx next start -p 3210 &
 npm run smoke -- http://127.0.0.1:3210
+npm run e2e   -- http://127.0.0.1:3210
 ```
 
-日本語の2文字検索、全角/半角の吸収、PDFのテキスト抽出、スキャンPDFのOCR、
-ウィキリンクとバックリンク、そして**APIキー無しでも他の機能が壊れないこと**を検証します。
+`smoke` はAPI経由で、日本語の2文字検索、全角/半角の吸収、FTS5のクエリ構文のエスケープ、
+PDFのテキスト抽出、スキャンPDFのOCR、ウィキリンクとバックリンク、そして
+**APIキー無しでも他の機能が壊れないこと**を検証します（45項目）。
+
+`e2e` はヘッドレスChromiumで、`/` メニュー、`[[` 補完、自動保存、ドラッグハンドル、
+⌘Kパレット、PDFビューアのテキストレイヤーとハイライトを検証します（19項目）。
+
+いずれも**本番ビルドに対して**実行してください。`next dev` は下記の理由で
+このテストには向きません。
 
 ## データの保存場所
 
@@ -160,6 +169,10 @@ scripts/        アイコン生成、モデル事前取得、テストPDF生成�
   プロキシ等でブロックされている可能性があります。Next.jsの開発クライアントは
   この接続に失敗するとハイドレーションを中断します。`npm run build && npm start` で
   確認してください（本番ビルドはHMRを使いません）
+- **pdf.js のポリフィル** — pdf.js v6 は `Map.prototype.getOrInsertComputed`（TC39の提案段階）を
+  使いますが、Chromium 141 や Node 22 にもまだ実装されていません。未対応の環境では
+  ページは描画されるのに `render()` のPromiseが解決されず、テキストレイヤーが作られないまま
+  **エラーも出さずに**止まります。`lib/pdf/map-upsert-polyfill.ts` で補っています
 - **OCRの精度** — 印刷された文字なら実用的ですが、手書き・縦書き・小さな文字は苦手です
 - **ネイティブモジュール** — `better-sqlite3` はプリビルドを使います。
   Node.jsのメジャーバージョンを変えたら `npm rebuild better-sqlite3` が必要です
