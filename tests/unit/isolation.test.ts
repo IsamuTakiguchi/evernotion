@@ -284,7 +284,7 @@ test('pre-accounts rows are claimed once, by the first user only', () => {
  * Every exception below is a statement that is scoped by its caller instead,
  * and each one has to say why. Adding an entry should feel like a decision.
  */
-const OWNED_TABLES = ['pages', 'attachments', 'chunks', 'search_docs', 'pdf_pages'];
+const OWNED_TABLES = ['pages', 'attachments', 'chunks', 'search_docs', 'pdf_pages', 'imports'];
 
 const SCOPED_BY_THEIR_CALLER = new Map<string, string>([
   // queries.ts — every id here comes from subtreeIds(), which is owner-scoped,
@@ -323,6 +323,13 @@ const SCOPED_BY_THEIR_CALLER = new Map<string, string>([
   ['UPDATE attachments SET ${keys.map((k) =>', 'background ingest progress, keyed by attachment id'],
   ["SELECT id, storage_path, filename FROM attachments WHERE status IN ('pending', 'extracting', 'ocr')",
     'resumes every interrupted ingest at startup, for all accounts by design'],
+
+  // import/run.ts — progress is written by id, and the id only ever comes from
+  // createImport, which recorded the owner. Reads of `imports` are scoped.
+  ['UPDATE imports SET ${keys.map((k) =>',
+    'the id came from createImport, which is owner-scoped'],
+  ["UPDATE imports SET status = 'error', error = '再起動により中断されました', finished_at = datetime('now') WHERE status IN ('pending', 'running')",
+    'startup recovery across every account; nothing is read back'],
 
   // health — counts only, and only returned at all when the instance is open,
   // which means a single local user.

@@ -1,6 +1,7 @@
 import { getDb } from '../db/client';
 import { getSetting, setSetting } from '../db/queries';
 import { resumePendingJobs } from '../pdf/queue';
+import { failInterruptedImports } from '../import/run';
 import { RESOLVED_SECRET_ENV, SECRET_SETTING, authMode, randomToken } from '../auth/session';
 import { localUser } from '../auth/users';
 import { seedWelcomeNotes } from './seed';
@@ -86,6 +87,10 @@ export function bootstrap(): void {
     // Any ingest interrupted by a restart is stranded in a non-terminal state;
     // without this its file would sit at "解析中" forever.
     resumePendingJobs();
+
+    // An import cannot be resumed the same way — its uploaded file went with
+    // the temp directory — so it is marked failed rather than left running.
+    failInterruptedImports();
   } catch (err) {
     s.phase = 'error';
     // A preflight error explains the failure; the exception is only its

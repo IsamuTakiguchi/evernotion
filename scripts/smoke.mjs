@@ -486,6 +486,86 @@ async function main() {
     check('the PDF file is served with range support', fileRes.status === 206);
   }
 
+  // --- import -------------------------------------------------------------
+  //
+  // The point of an import is that the notes are usable afterwards, so this
+  // goes all the way through to searching for their text — and, for an
+  // attached PDF, to searching inside it. That last one is what proves an
+  // imported PDF really does land on the same ingest pipeline an uploaded one
+  // uses, rather than merely being stored.
+  console.log('\nimport');
+  {
+    const marker = Array.from({ length: 6 }, () =>
+      'アイウエオカキクケコサシスセソ'[Math.floor(Math.random() * 15)]).join('');
+
+    const pdfPath = path.join(root, 'tests/fixtures/fixture-text.pdf');
+    const hasPdf = fs.existsSync(pdfPath);
+    const pdf = hasPdf ? fs.readFileSync(pdfPath) : Buffer.alloc(0);
+
+    const enex = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE en-export SYSTEM "http://xml.evernote.com/pub/evernote-export4.dtd">
+<en-export><note>
+  <title>取り込みテスト ${marker}</title>
+  <content><![CDATA[<en-note><div>合言葉は${marker}。</div>
+    <div><en-todo checked="true"/>済んだ作業</div></en-note>]]></content>
+  <tag>取り込み</tag>
+  ${hasPdf ? `<resource><data encoding="base64">${pdf.toString('base64')}</data>
+    <mime>application/pdf</mime>
+    <resource-attributes><file-name>添付.pdf</file-name></resource-attributes></resource>` : ''}
+</note></en-export>`, 'utf8');
+
+    const started = await fetch(`${BASE}/api/import`, {
+      method: 'POST',
+      headers: authHeaders({ 'x-filename': 'smoke.enex' }),
+      body: enex,
+    });
+    check('an Evernote export is accepted', started.status === 202, String(started.status));
+
+    if (started.status === 202) {
+      const { import: job } = await started.json();
+      let progress = job;
+      for (let i = 0; i < 60 && progress.status !== 'done' && progress.status !== 'error'; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        progress = (await get(`/api/import?id=${job.id}`)).import;
+      }
+
+      check('the import finishes', progress.status === 'done', progress.error ?? progress.status);
+      check('it reports what it took in', progress.notes === 1,
+        `notes=${progress.notes} attachments=${progress.attachments}`);
+
+      const tree = (await get('/api/pages')).tree;
+      const imported = tree.find((n) => n.title === `取り込みテスト ${marker}`);
+      check('the imported note is in the sidebar', !!imported);
+
+      // A 2-character Japanese query is the shape FTS5 cannot answer on its
+      // own, so finding the note this way also shows it went through the
+      // normal indexing path rather than some import-only shortcut.
+      check('imported text is searchable', (await searchHits(marker)).length > 0);
+
+      if (imported) {
+        const tags = (await get(`/api/pages/${imported.id}/tags`)).tags;
+        check('Evernote tags come across', tags.some((t) => t.name === '取り込み'));
+
+        const detail = await get(`/api/pages/${imported.id}`);
+        check('checkboxes survive the round trip',
+          JSON.stringify(detail.page.doc).includes('"taskItem"'));
+      }
+
+      if (hasPdf) {
+        // The attached PDF is queued on import; give the existing pipeline
+        // time to extract it, then look for words that are only inside it.
+        let pdfHits = [];
+        for (let i = 0; i < 60 && pdfHits.length === 0; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          pdfHits = (await searchHits('目的外使用', '&kind=pdf'))
+            .filter((h) => h.pageId === imported?.id);
+        }
+        check('an imported PDF is extracted and searchable by its contents',
+          pdfHits.length > 0);
+      }
+    }
+  }
+
   // --- semantic search ----------------------------------------------------
   console.log('\nsemantic search');
   const semantic = await get(`/api/search/semantic?q=${encodeURIComponent('予算はいつ承認された')}`);

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/client/api';
 import { IconSettings, IconSpinner } from '@/components/ui/Icons';
+import { ImportPanel } from '@/components/settings/ImportPanel';
 
 type SettingsInfo = {
   aiEnabled: boolean;
@@ -158,6 +159,8 @@ export default function SettingsPage() {
           </button>
         </div>
       </section>
+
+      <ImportPanel />
 
       {message && (
         <p
