@@ -84,10 +84,15 @@ if (health.authMode && health.authMode !== 'open') {
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 if (cookie) {
   const [name, ...rest] = cookie.split('=');
+  const raw = rest.join('=');
   await context.addCookies([
     {
       name,
-      value: rest.join('='),
+      // Percent-encoded, which is how the server writes it and therefore how a
+      // real browser stores and returns it. Injecting the raw token instead
+      // works too, but it dodges the encoding entirely — and that gap is what
+      // let a cookie the server could never verify ship unnoticed.
+      value: raw.includes('%') ? raw : encodeURIComponent(raw),
       domain: new URL(BASE).hostname,
       path: '/',
       httpOnly: true,

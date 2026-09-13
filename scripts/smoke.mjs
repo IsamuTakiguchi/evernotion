@@ -142,6 +142,38 @@ async function main() {
       check('…and sends the browser back to the public URL',
         back.startsWith('/') || new URL(back, publicOrigin).origin === publicOrigin,
         `${back} (expected origin ${publicOrigin})`);
+
+      // The state cookie has to survive the trip out and back *as the browser
+      // sends it* — percent-encoded, exactly as Set-Cookie wrote it.
+      //
+      // This is the check that was missing while sign-in was impossible: the
+      // value is signed before encoding and was verified after, so it never
+      // matched, and the only cookie test here used no cookie at all. Replaying
+      // the real header is the one thing that catches it.
+      //
+      // The code is deliberately bogus, so reaching the token exchange at all
+      // is the pass condition: it means the state and signature were accepted.
+      const stateCookie = (start.headers.get('set-cookie') ?? '')
+        .split(/,(?=\s*ev_oauth=)/)
+        .find((c) => c.trim().startsWith('ev_oauth='))
+        ?.split(';')[0]
+        ?.trim();
+
+      if (!stateCookie) {
+        check('the state cookie comes back on the callback', false, 'no ev_oauth in Set-Cookie');
+      } else {
+        const replayed = await fetch(
+          `${BASE}/api/auth/google/callback?code=FAKE&state=${params.get('state')}`,
+          { headers: { Cookie: stateCookie }, redirect: 'manual' },
+        );
+        const reason = new URL(replayed.headers.get('location') ?? '', publicOrigin)
+          .searchParams.get('error');
+        check('the state cookie survives Set-Cookie and is accepted back',
+          reason !== 'state',
+          reason === 'state'
+            ? 'the cookie was rejected — signed and verified over different strings?'
+            : String(reason));
+      }
     } else {
       check('an unconfigured public instance refuses rather than opens',
         (await rawStatus('/api/pages')) === 503);

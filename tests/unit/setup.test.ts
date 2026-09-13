@@ -4,11 +4,26 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { createRequire } from 'node:module';
+
+/**
+ * Next's own cookie serialiser, on purpose.
+ *
+ * These tests exist because the app disagreed with it about encoding, so
+ * asserting against a hand-written guess at what it emits would reproduce
+ * exactly the mistake they are here to catch. It ships as CommonJS with no
+ * types of its own, hence require rather than import.
+ */
+const { serialize } = createRequire(import.meta.url)('next/dist/compiled/cookie') as {
+  serialize: (name: string, value: string) => string;
+};
+
 import { isMountPoint, isWritable, isHostedDeployment, runPreflight } from '@/lib/setup/preflight';
 import {
-  RESOLVED_SECRET_ENV, authMode, createSessionToken, googleConfigured, randomToken,
-  sessionUserId, signPayload, verifyPayload,
+  RESOLVED_SECRET_ENV, SESSION_COOKIE, authMode, createSessionToken, googleConfigured,
+  randomToken, readCookie, sessionCookie, sessionUserId, signPayload, verifyPayload,
 } from '@/lib/auth/session';
+import { OAUTH_STATE_COOKIE, readStateCookie } from '@/lib/auth/google';
 import { allowedEmails, isAllowedEmail } from '@/lib/auth/users';
 
 /** Run a body with a specific set of environment variables, then restore. */
@@ -270,6 +285,77 @@ test('signPayload/verifyPayload round-trips the OAuth state', async () => {
 test('randomToken does not repeat itself', () => {
   const seen = new Set(Array.from({ length: 100 }, () => randomToken(16)));
   assert.equal(seen.size, 100);
+});
+
+// --------------------------------------------------------------- cookies ---
+
+/**
+ * Cookies have to survive the trip out through Set-Cookie and back.
+ *
+ * This is where sign-in was broken: `response.cookies.set()` percent-encodes
+ * the value, `readCookie()` did not decode it, and so every signature was
+ * verified against a different string than it was made from. It failed the
+ * same way every time, for everybody, and no test noticed — because the tests
+ * injected cookies as raw strings and never let Next's serialiser near them.
+ *
+ * So these go through `serialize()` rather than a literal, and assert on the
+ * round trip rather than on the encoding.
+ */
+const asRequest = (header: string) =>
+  new Request('https://example.com/', { headers: { cookie: header } });
+
+test('readCookie decodes a percent-encoded value', () => {
+  const value = '{"a":"b"}.sig';
+  const req = asRequest(serialize('ev_test', value));
+  assert.equal(readCookie(req, 'ev_test'), value);
+});
+
+test('a session cookie survives Set-Cookie and back', async () => {
+  await withEnvAsync({ EVERNOTION_SECRET: 'test-secret' }, async () => {
+    const token = await createSessionToken('u_abc123');
+    // Exactly what the browser would store and send back.
+    const req = asRequest(serialize(SESSION_COOKIE, token));
+    assert.equal(sessionCookie(req), token);
+    assert.equal(await sessionUserId(sessionCookie(req)), 'u_abc123');
+  });
+});
+
+test('an OAuth state cookie survives Set-Cookie and back', async () => {
+  await withEnvAsync({ EVERNOTION_SECRET: 'test-secret' }, async () => {
+    const signed = await signPayload(
+      JSON.stringify({ state: 'abc', verifier: 'xyz', next: '/p/1' }),
+    );
+    const req = asRequest(serialize(OAUTH_STATE_COOKIE, signed));
+    const saved = await readStateCookie(readCookie(req, OAUTH_STATE_COOKIE));
+    assert.deepEqual(saved, { state: 'abc', verifier: 'xyz', next: '/p/1' });
+  });
+});
+
+test('a value that was never encoded still reads back', async () => {
+  // Decoding has to be harmless for a token pasted in by hand, which is how
+  // EVERNOTION_SESSION reaches the smoke and browser suites.
+  await withEnvAsync({ EVERNOTION_SECRET: 'test-secret' }, async () => {
+    const token = await createSessionToken('u_abc123');
+    const req = asRequest(`${SESSION_COOKIE}=${token}`);
+    assert.equal(await sessionUserId(sessionCookie(req)), 'u_abc123');
+  });
+});
+
+test('a malformed percent escape is rejected, not thrown', () => {
+  const req = asRequest(`${SESSION_COOKIE}=%zz%`);
+  assert.equal(readCookie(req, SESSION_COOKIE), undefined);
+});
+
+test('readCookie matches the whole name, not a prefix of one', () => {
+  // `ev_session_backup=` starts with neither more nor less than the name plus
+  // an underscore; a startsWith check on the name alone would take its value.
+  const req = asRequest('ev_session_backup=wrong; ev_session=right');
+  assert.equal(readCookie(req, SESSION_COOKIE), 'right');
+});
+
+test('a missing cookie is undefined', () => {
+  assert.equal(readCookie(asRequest('other=1'), SESSION_COOKIE), undefined);
+  assert.equal(readCookie(new Request('https://example.com/'), SESSION_COOKIE), undefined);
 });
 
 // ----------------------------------------------------------- route guard ---

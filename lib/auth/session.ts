@@ -126,13 +126,32 @@ export async function sessionUserId(token: string | undefined): Promise<string |
   return payload.slice(0, split);
 }
 
-/** Read one cookie out of a plain Request. */
+/**
+ * Read one cookie out of a plain Request.
+ *
+ * The decode is the whole point. Setting a cookie percent-encodes its value,
+ * so a token signed as `u_abc:1789.sig` arrives as `u_abc%3A1789.sig` — and
+ * verifying the signature over *that* compares one string against a hash of a
+ * different one. It fails identically every time, which reads as "the session
+ * expired" rather than as a bug.
+ *
+ * Decoding is also harmless for a value that was never encoded, which is how a
+ * token pasted in by hand reaches the smoke and browser suites.
+ */
 export function readCookie(req: Request, name: string): string | undefined {
-  return (req.headers.get('cookie') ?? '')
+  const raw = (req.headers.get('cookie') ?? '')
     .split(';')
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${name}=`))
     ?.slice(name.length + 1);
+
+  if (raw === undefined) return undefined;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    // A malformed escape is not a cookie this app issued.
+    return undefined;
+  }
 }
 
 export function sessionCookie(req: Request): string | undefined {
