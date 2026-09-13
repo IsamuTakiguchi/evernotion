@@ -125,8 +125,23 @@ async function main() {
 
       // A callback with no state cookie is a forged or stale one.
       const forged = await fetch(`${BASE}/api/auth/google/callback?code=x&state=y`, { redirect: 'manual' });
-      check('a callback without the state cookie is refused',
-        (forged.headers.get('location') ?? '').includes('error=state'));
+      const back = forged.headers.get('location') ?? '';
+      check('a callback without the state cookie is refused', back.includes('error=state'));
+
+      // …and it has to send the browser to the public URL, not to whatever
+      // address the request happened to arrive on.
+      //
+      // Behind a proxy — every hosted deployment — the request the handler
+      // sees is addressed to the container's bind address, so a redirect built
+      // from the request origin becomes https://0.0.0.0:8080/… and loads for
+      // nobody. Comparing against BASE would be wrong here (this script may
+      // legitimately dial an internal address), so the invariant is that the
+      // callback and the redirect_uri agree: both are the configured public
+      // URL, and they diverge exactly when this bug is present.
+      const publicOrigin = new URL(params.get('redirect_uri') ?? BASE).origin;
+      check('…and sends the browser back to the public URL',
+        back.startsWith('/') || new URL(back, publicOrigin).origin === publicOrigin,
+        `${back} (expected origin ${publicOrigin})`);
     } else {
       check('an unconfigured public instance refuses rather than opens',
         (await rawStatus('/api/pages')) === 503);

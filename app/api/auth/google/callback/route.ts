@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
-  OAUTH_STATE_COOKIE, exchangeCode, readStateCookie, redirectUri,
+  OAUTH_STATE_COOKIE, baseUrl, exchangeCode, readStateCookie, redirectUri,
 } from '@/lib/auth/google';
 import {
   SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, authMode, createSessionToken, readCookie,
@@ -20,8 +20,17 @@ export async function GET(req: Request) {
 
   const hosted = isHostedDeployment();
   const url = new URL(req.url);
+
+  // Where to send the browser next.
+  //
+  // NOT url.origin. Behind a proxy — which is every hosted deployment — the
+  // request this handler sees is addressed to the container's bind address, so
+  // url.origin is "https://0.0.0.0:8080" and every redirect from here lands on
+  // an address the browser cannot reach. It has to be the same configured
+  // public URL that built the redirect_uri.
+  const home = baseUrl(req, hosted);
   const fail = (reason: string) =>
-    NextResponse.redirect(new URL(`/login?error=${reason}`, url.origin));
+    NextResponse.redirect(new URL(`/login?error=${reason}`, home));
 
   // The user pressed Cancel, or Google refused.
   const denied = url.searchParams.get('error');
@@ -58,7 +67,7 @@ export async function GET(req: Request) {
   // A brand new account opens to an empty sidebar otherwise.
   seedWelcomeNotes(user.id);
 
-  const response = NextResponse.redirect(new URL(saved.next || '/', url.origin));
+  const response = NextResponse.redirect(new URL(saved.next || '/', home));
   response.cookies.set(SESSION_COOKIE, await createSessionToken(user.id), {
     httpOnly: true,
     sameSite: 'lax',
