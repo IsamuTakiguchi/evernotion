@@ -2,13 +2,17 @@ import { NextResponse } from 'next/server';
 import { deletePage, getBacklinks, getPage, getUnresolvedLinks, updatePage } from '@/lib/db/queries';
 import { queuePageIndex } from '@/lib/ai/indexer';
 import type { JSONContent } from '@/lib/editor/doc';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const { id } = await params;
   const page = getPage(id);
   if (!page) return NextResponse.json({ error: 'not found' }, { status: 404 });
@@ -20,6 +24,9 @@ export async function GET(_req: Request, { params }: Params) {
 }
 
 export async function PATCH(req: Request, { params }: Params) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
     title?: string;
@@ -41,7 +48,10 @@ export async function PATCH(req: Request, { params }: Params) {
   });
 }
 
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(req: Request, { params }: Params) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const { id } = await params;
   deletePage(id);
   return NextResponse.json({ ok: true });

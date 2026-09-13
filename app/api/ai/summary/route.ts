@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getClient, isAiEnabled, MODELS, noKeyResponse } from '@/lib/ai/client';
 import { getPage } from '@/lib/db/queries';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   if (!isAiEnabled()) return noKeyResponse();
 
   const { pageId } = (await req.json().catch(() => ({}))) as { pageId?: string };

@@ -1,5 +1,6 @@
 import { getClient, isAiEnabled, MODELS, noKeyResponse } from '@/lib/ai/client';
 import { retrieve, type Source } from '@/lib/ai/rag';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,9 @@ function buildContext(sources: Source[]): string {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   if (!isAiEnabled()) return noKeyResponse();
 
   const body = (await req.json().catch(() => ({}))) as {

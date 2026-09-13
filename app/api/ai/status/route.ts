@@ -2,12 +2,16 @@ import { NextResponse } from 'next/server';
 import { isAiEnabled } from '@/lib/ai/client';
 import { indexerStatus } from '@/lib/ai/indexer';
 import { getDb } from '@/lib/db/client';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /** Lets the UI decide between the live AI panel and the "set a key" state. */
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const db = getDb();
   const chunks = db.prepare('SELECT COUNT(*) AS n FROM chunks WHERE embedding IS NOT NULL').get() as { n: number };
   return NextResponse.json({

@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/client';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const tags = getDb()
     .prepare(
       `SELECT t.name, COUNT(pt.page_id) AS count

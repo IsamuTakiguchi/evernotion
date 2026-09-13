@@ -2,7 +2,20 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, configuredPassword, verifySessionToken } from '@/lib/auth/session';
 
 /**
- * Optional password gate.
+ * Optional password gate, run in front of every matched request.
+ *
+ * Next 16 renamed `middleware` to `proxy`; the behaviour is identical and it
+ * now defaults to the Node.js runtime.
+ *
+ * This is an early exit, NOT the security boundary. Next's own guidance:
+ *
+ *   "A matcher change or a refactor that moves a Server Function to a
+ *    different route can silently remove Proxy coverage. Always verify
+ *    authentication and authorization inside each Server Function rather than
+ *    relying on Proxy alone."
+ *
+ * So the route handlers check the session themselves via requireSession();
+ * a mistake in the matcher below costs a redirect, not the notes.
  *
  * Evernotion is designed to run on your own machine, where there is nobody to
  * authenticate. Deployed to a public URL that assumption breaks completely:
@@ -10,7 +23,7 @@ import { SESSION_COOKIE, configuredPassword, verifySessionToken } from '@/lib/au
  * every PDF and upload files. Setting EVERNOTION_PASSWORD turns the gate on;
  * leaving it unset keeps local use frictionless.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const password = configuredPassword();
   if (!password) return NextResponse.next();
 

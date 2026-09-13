@@ -18,3 +18,7 @@ tests
 !.env.example
 *.md
 !README.md
+
+# Railway's Infrastructure as Code. Read by the CLI on your machine, never
+# by the running container.
+.railway

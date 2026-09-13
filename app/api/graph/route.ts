@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/client';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,10 @@ export type GraphNode = {
 
 export type GraphLink = { source: string; target: string; unresolved: boolean };
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const db = getDb();
 
   const pages = db

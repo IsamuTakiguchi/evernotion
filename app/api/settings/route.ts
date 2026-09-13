@@ -2,11 +2,15 @@ import { NextResponse } from 'next/server';
 import { getSetting, setSetting } from '@/lib/db/queries';
 import { isAiEnabled } from '@/lib/ai/client';
 import { isProtected } from '@/lib/auth/session';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const stored = getSetting('anthropic_api_key');
   return NextResponse.json({
     aiEnabled: isAiEnabled(),
@@ -19,6 +23,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const body = (await req.json().catch(() => ({}))) as { apiKey?: string };
   const key = (body.apiKey ?? '').trim();
 

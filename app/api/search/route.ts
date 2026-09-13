@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { search } from '@/lib/search/search';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const url = new URL(req.url);
   const q = url.searchParams.get('q') ?? '';
   const kindParam = url.searchParams.get('kind');

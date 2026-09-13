@@ -1,11 +1,15 @@
 import fs from 'node:fs';
 import { getDb } from '@/lib/db/client';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /** Serves the stored PDF with range support, which pdf.js relies on. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const { id } = await params;
   const row = getDb()
     .prepare('SELECT storage_path, mime, filename FROM attachments WHERE id = ?')

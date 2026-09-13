@@ -18,7 +18,11 @@ type TessWorker = Awaited<ReturnType<typeof import('tesseract.js')['createWorker
 let workerPromise: Promise<TessWorker> | null = null;
 
 function tessdataDir(): string {
-  const dir = path.join(dataDir(), 'models', 'tessdata');
+  // Shared with scripts/warmup.mjs and the startup provisioning, so a model
+  // baked into the image at build time is the same one OCR looks for.
+  const dir = process.env.EVERNOTION_MODEL_DIR
+    ? path.resolve(process.env.EVERNOTION_MODEL_DIR, 'tessdata')
+    : path.join(dataDir(), 'models', 'tessdata');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }

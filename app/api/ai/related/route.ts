@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 import { relatedPages } from '@/lib/ai/rag';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /** Purely local: runs on embeddings, so it works without an API key. */
 export async function GET(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const pageId = new URL(req.url).searchParams.get('pageId');
   if (!pageId) return NextResponse.json({ error: 'pageId is required' }, { status: 400 });
 

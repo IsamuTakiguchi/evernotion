@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { vectorSearch } from '@/lib/ai/rag';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,9 @@ export const dynamic = 'force-dynamic';
  * Runs entirely locally, so it needs no API key.
  */
 export async function GET(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const url = new URL(req.url);
   const q = (url.searchParams.get('q') ?? '').trim();
   if (!q) return NextResponse.json({ hits: [] });

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { nanoid } from 'nanoid';
 import { getDb, filesDir } from '@/lib/db/client';
 import { enqueuePdf } from '@/lib/pdf/queue';
+import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic';
 const MAX_BYTES = 200 * 1024 * 1024;
 
 export async function POST(req: Request) {
+  const denied = await requireSession(req);
+  if (denied) return denied;
+
   const form = await req.formData();
   const file = form.get('file');
   const pageId = (form.get('pageId') as string | null) ?? null;

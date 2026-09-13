@@ -23,6 +23,11 @@ export function embeddingsReady(): boolean {
 async function getExtractor(): Promise<FeatureExtractor> {
   if (!extractorPromise) {
     extractorPromise = (async () => {
+      // Point the model cache at the shared model root, so a model baked into
+      // the image is reused instead of re-downloaded into the volume.
+      if (process.env.EVERNOTION_MODEL_DIR) {
+        process.env.TRANSFORMERS_CACHE ??= `${process.env.EVERNOTION_MODEL_DIR}/hub`;
+      }
       const { pipeline } = await import('@huggingface/transformers');
       // Downloads the model on first use (~120MB) and caches it on disk.
       return (await pipeline('feature-extraction', EMBED_MODEL, {

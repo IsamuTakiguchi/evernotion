@@ -1,9 +1,9 @@
 /**
  * Session tokens for the optional password gate.
  *
- * Uses Web Crypto only, so the same code runs in middleware (edge runtime) and
- * in route handlers (Node). No dependency, no session store: the token carries
- * its own expiry and is verified by signature.
+ * Uses Web Crypto only, so the same code runs in Proxy and in route handlers
+ * without caring which runtime it landed on. No dependency, no session store:
+ * the token carries its own expiry and is verified by signature.
  */
 
 export const SESSION_COOKIE = 'ev_session';
@@ -18,14 +18,64 @@ function secretFor(password: string): string {
   return process.env.EVERNOTION_SECRET?.trim() || password;
 }
 
-/** The configured password, or null when the app is left open. */
+/** Key under which a self-provisioned password is stored. */
+export const GENERATED_PASSWORD_SETTING = 'generated_password';
+
+/**
+ * Where a self-provisioned password is published for the rest of the process.
+ *
+ * Startup resolves the password once (reading or creating the stored one) and
+ * puts it here, so this module never has to touch the database. That keeps it
+ * usable from any runtime and avoids a database read on every request.
+ *
+ * Safe by construction: instrumentation's register() is documented to complete
+ * before the server accepts requests, so this is populated before anything can
+ * ask for it.
+ */
+export const RESOLVED_PASSWORD_ENV = 'EVERNOTION_RESOLVED_PASSWORD';
+
+/**
+ * The password guarding this instance, or null when it is deliberately open.
+ *
+ * Resolution order:
+ *   1. EVERNOTION_PASSWORD — an explicit choice always wins
+ *   2. a password this instance generated for itself on first boot
+ *   3. null, which means no login at all
+ *
+ * Step 2 is what lets a public deployment be protected without anyone having to
+ * remember to set a variable.
+ */
 export function configuredPassword(): string | null {
-  const value = process.env.EVERNOTION_PASSWORD?.trim();
-  return value ? value : null;
+  const fromEnv = process.env.EVERNOTION_PASSWORD?.trim();
+  if (fromEnv) return fromEnv;
+
+  const resolved = process.env[RESOLVED_PASSWORD_ENV]?.trim();
+  return resolved ? resolved : null;
 }
 
 export function isProtected(): boolean {
   return configuredPassword() !== null;
+}
+
+/** Whether the active password was generated rather than configured. */
+export function isGeneratedPassword(): boolean {
+  return !process.env.EVERNOTION_PASSWORD?.trim() && configuredPassword() !== null;
+}
+
+/**
+ * A password that is easy to copy out of a deploy log and still strong.
+ *
+ * Avoids the characters that get misread when someone retypes from a log
+ * (0/O, 1/l/I) — a password nobody can transcribe just gets replaced by a
+ * weaker one.
+ */
+export function generatePassword(): string {
+  const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint32Array(24);
+  crypto.getRandomValues(bytes);
+  const chars = [...bytes].map((n) => alphabet[n % alphabet.length]);
+  // Grouped, so it survives being read off a screen.
+  return [0, 6, 12, 18].map((i) => chars.slice(i, i + 6).join('')).join('-');
 }
 
 async function hmac(key: string, message: string): Promise<string> {
