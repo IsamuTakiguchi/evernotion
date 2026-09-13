@@ -212,6 +212,73 @@ try {
   check('the dark-mode toggle applies',
     await page.evaluate(() => document.documentElement.classList.contains('dark')));
 
+  // --- mobile layout ------------------------------------------------------
+  // The app is reachable from a phone once deployed, where a fixed 260px
+  // sidebar would leave almost nothing for the note itself.
+  console.log('\nmobile layout');
+  const phone = await browser.newPage({
+    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+  });
+  const phoneErrors = [];
+  phone.on('pageerror', (e) => phoneErrors.push(String(e)));
+
+  try {
+    await phone.goto(`${BASE}/p/${noteId}`, { waitUntil: 'networkidle' });
+    await phone.waitForSelector('.ProseMirror', { timeout: 20000 });
+    await phone.waitForTimeout(1200);
+
+    const overflow = await phone.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    check('the page does not scroll sideways on a phone', overflow <= 1, `${overflow}px`);
+
+    await phone.locator('header button[aria-label="メニューを開く"]').click();
+    await phone.waitForTimeout(600);
+    // :visible matters here — the desktop sidebar stays in the DOM, just hidden.
+    check('the navigation drawer opens',
+      (await phone.locator('a[href="/trash"]:visible').count()) > 0);
+
+    await phone.locator('a[href="/trash"]:visible').first().click();
+    await phone.waitForTimeout(1500);
+    check('navigating from the drawer closes it',
+      (await phone.locator('a[href="/trash"]:visible').count()) === 0);
+
+    await phone.locator('header button[aria-label="検索"]').click();
+    await phone.waitForTimeout(400);
+    await phone.locator('input[placeholder*="検索"]').fill('予算');
+    await phone.waitForTimeout(1800);
+    check('search works from the phone top bar',
+      (await phone.locator('mark').count()) > 0);
+    check('no page errors on mobile', phoneErrors.length === 0, phoneErrors.slice(0, 2).join(' | '));
+  } finally {
+    await phone.close();
+  }
+
+  // --- trash --------------------------------------------------------------
+  console.log('\ntrash');
+  const { page: doomed } = await (
+    await fetch(`${BASE}/api/pages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'UIゴミ箱テスト' }),
+    })
+  ).json();
+
+  await fetch(`${BASE}/api/pages/${doomed.id}/archive`, { method: 'POST' });
+  await page.goto(`${BASE}/trash`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1000);
+
+  // Scoped to the trash list: once restored the title reappears in the
+  // sidebar, so a page-wide text match would still find it and prove nothing.
+  const trashRow = page.locator('main div.rounded-lg.border').filter({ hasText: 'UIゴミ箱テスト' });
+  check('a deleted note appears in the trash screen', (await trashRow.count()) === 1);
+
+  await trashRow.locator('button:has-text("元に戻す")').click();
+  await page.waitForTimeout(1500);
+  check('restoring removes it from the trash list', (await trashRow.count()) === 0);
+  check('the restored note is back in the sidebar',
+    await page.locator('aside a:has-text("UIゴミ箱テスト")').first().isVisible().catch(() => false));
+
   console.log('\nconsole');
   check('no uncaught page errors', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
 } finally {

@@ -216,6 +216,45 @@ async function main() {
   const tags = await get('/api/tags');
   check('an inline #tag is indexed', tags.tags.some((t) => t.name === '経営'));
 
+  // --- trash --------------------------------------------------------------
+  // Deleting is the one destructive action in the app, and it takes a subtree
+  // with it, so it has to be reversible.
+  console.log('\ntrash');
+  const { body: parent } = await post('/api/pages', { title: 'ゴミ箱テスト親' });
+  const { body: child } = await post('/api/pages', {
+    title: 'ゴミ箱テスト子', parentId: parent.page.id,
+  });
+  await patch(`/api/pages/${child.page.id}`, {
+    doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '合言葉ヲリーブ' }] }] },
+  });
+
+  check('a note is searchable before deletion', (await searchHits('ヲリーブ')).length > 0);
+  await post(`/api/pages/${parent.page.id}/archive`);
+  check('deleting a page hides its descendants too', (await searchHits('ヲリーブ')).length === 0);
+  check('a deleted page leaves the sidebar tree',
+    !(await get('/api/pages')).tree.some((n) => n.id === parent.page.id));
+
+  const archived = (await get('/api/pages/archived')).pages;
+  check('the deleted page is in the trash', archived.some((p) => p.id === parent.page.id));
+  check('the trash lists subtree roots, not every child',
+    !archived.some((p) => p.id === child.page.id));
+
+  await fetch(`${BASE}/api/pages/${parent.page.id}/archive`, {
+    method: 'DELETE', headers: authHeaders(),
+  });
+  check('restoring brings the content back', (await searchHits('ヲリーブ')).length > 0);
+  check('restoring brings the page back to the tree',
+    (await get('/api/pages')).tree.some((n) => n.id === parent.page.id));
+
+  // --- tags ---------------------------------------------------------------
+  console.log('\ntags');
+  await post(`/api/pages/${child.page.id}/tags`, { add: ['重要テスト'], source: 'ai' });
+  check('a tag can be applied to a page',
+    (await get(`/api/pages/${child.page.id}/tags`)).tags.some((t) => t.name === '重要テスト'));
+  await post(`/api/pages/${child.page.id}/tags`, { remove: ['重要テスト'] });
+  check('a tag can be removed again',
+    !(await get(`/api/pages/${child.page.id}/tags`)).tags.some((t) => t.name === '重要テスト'));
+
   // --- Japanese search ----------------------------------------------------
   console.log('\nJapanese search');
 
@@ -229,6 +268,13 @@ async function main() {
     const hits = await searchHits(q);
     check(`longer query "${q}" finds the note`, hits.length > 0);
   }
+
+  const { body: rare } = await post('/api/pages', { title: '取引先メモ' });
+  await patch(`/api/pages/${rare.page.id}`, {
+    doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '\u{20BB7}野家と\u{2123D}屋に連絡' }] }] },
+  });
+  check('names using supplementary-plane kanji are searchable',
+    (await searchHits('\u{20BB7}野家')).length > 0);
 
   const fullWidth = await searchHits('ＴＯＫＹＯ');
   const ascii = await searchHits('tokyo');
@@ -354,6 +400,18 @@ async function main() {
       headers: authHeaders({ Range: 'bytes=0-99' }),
     });
     check('the PDF file is served with range support', fileRes.status === 206);
+  }
+
+  // --- semantic search ----------------------------------------------------
+  console.log('\nsemantic search');
+  const semantic = await get(`/api/search/semantic?q=${encodeURIComponent('予算はいつ承認された')}`);
+  check('semantic search answers without an API key', Array.isArray(semantic.hits));
+  if (!semantic.unavailable && semantic.hits.length > 0) {
+    check('semantic hits carry somewhere to navigate to',
+      semantic.hits.every((h) => h.pageId || h.attachmentId));
+    check('semantic hits are ranked', semantic.hits[0].score >= (semantic.hits.at(-1)?.score ?? 0));
+  } else {
+    console.log('  (embedding model not ready yet; ranking not asserted)');
   }
 
   // --- AI, with and without a key ----------------------------------------

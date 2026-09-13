@@ -16,7 +16,7 @@ export default async function TagsPage() {
     .all() as { name: string; count: number }[];
 
   return (
-    <div className="mx-auto max-w-3xl px-10 py-12">
+    <div className="mx-auto max-w-3xl px-5 py-10 sm:px-10 sm:py-12">
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">タグ</h1>
       {tags.length === 0 ? (
         <p className="text-[14px]" style={{ color: 'var(--text-faint)' }}>

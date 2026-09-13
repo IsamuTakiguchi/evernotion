@@ -69,7 +69,7 @@ export function PageView({ initial }: { initial: PageData }) {
   return (
     <div className="flex h-full">
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[760px] px-14 py-14">
+        <div className="mx-auto max-w-[760px] px-5 py-8 sm:px-10 lg:px-14 lg:py-14">
           <div className="relative mb-1">
             <button
               onClick={() => setPickerOpen((v) => !v)}
@@ -116,7 +116,7 @@ export function PageView({ initial }: { initial: PageData }) {
             onChange={(e) => setTitle(e.target.value)}
             onBlur={() => void saveMeta({ title })}
             placeholder="無題"
-            className="mb-4 w-full bg-transparent text-[40px] font-bold leading-tight tracking-tight outline-none placeholder:text-[var(--text-faint)]"
+            className="mb-4 w-full bg-transparent text-[30px] font-bold leading-tight tracking-tight outline-none placeholder:text-[var(--text-faint)] sm:text-[40px]"
           />
 
           {fileId && (

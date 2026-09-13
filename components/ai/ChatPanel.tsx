@@ -128,7 +128,7 @@ export function ChatPanel() {
 
   if (status && !status.aiEnabled) {
     return (
-      <div className="mx-auto max-w-2xl px-10 py-20">
+      <div className="mx-auto max-w-2xl px-5 py-14 sm:px-10 sm:py-20">
         <h1 className="mb-3 flex items-center gap-2 text-2xl font-semibold tracking-tight">
           <IconSparkles size={22} />
           AIチャット
@@ -154,7 +154,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="mx-auto flex h-screen max-w-3xl flex-col px-8">
+    <div className="mx-auto flex h-full max-w-3xl flex-col px-4 sm:px-8">
       <header className="flex items-center gap-2 py-5">
         <IconSparkles size={20} />
         <h1 className="text-[17px] font-semibold tracking-tight">AIチャット</h1>

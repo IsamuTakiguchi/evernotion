@@ -193,12 +193,125 @@ export function updatePage(
   return getPage(id);
 }
 
+/** A page and every descendant, deepest last. */
+function subtreeIds(id: string): string[] {
+  const rows = getDb()
+    .prepare(
+      `WITH RECURSIVE tree(id) AS (
+         SELECT id FROM pages WHERE id = ?
+         UNION ALL
+         SELECT p.id FROM pages p JOIN tree t ON p.parent_id = t.id
+       )
+       SELECT id FROM tree`,
+    )
+    .all(id) as { id: string }[];
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Move a page and its descendants to the trash.
+ *
+ * This is what the sidebar's delete button does. Notes are the thing this app
+ * exists to keep, and a subtree can disappear with one misclick, so removal is
+ * reversible by default and permanent only from the trash screen.
+ *
+ * Nothing is unindexed: every query that reads notes, search hits, backlinks
+ * and the graph already filters on archived_at IS NULL, so restoring is just
+ * clearing the column.
+ */
+export function archivePage(id: string): number {
+  const db = getDb();
+  const ids = subtreeIds(id);
+  if (ids.length === 0) return 0;
+
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(
+    `UPDATE pages SET archived_at = datetime('now'), updated_at = datetime('now')
+      WHERE id IN (${placeholders}) AND archived_at IS NULL`,
+  ).run(...ids);
+  return ids.length;
+}
+
+export function restorePage(id: string): number {
+  const db = getDb();
+  const ids = subtreeIds(id);
+  if (ids.length === 0) return 0;
+
+  const placeholders = ids.map(() => '?').join(',');
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE pages SET archived_at = NULL, updated_at = datetime('now')
+        WHERE id IN (${placeholders})`,
+    ).run(...ids);
+
+    // A page restored under an archived parent would be invisible in the tree,
+    // so it comes back at the top level instead of vanishing.
+    db.prepare(
+      `UPDATE pages SET parent_id = NULL
+        WHERE id = ?
+          AND parent_id IS NOT NULL
+          AND parent_id IN (SELECT id FROM pages WHERE archived_at IS NOT NULL)`,
+    ).run(id);
+
+    // Links to these titles can resolve again.
+    for (const pageId of ids) {
+      const page = db.prepare('SELECT title FROM pages WHERE id = ?').get(pageId) as
+        | { title: string }
+        | undefined;
+      if (page?.title) {
+        db.prepare(
+          'UPDATE links SET target_page_id = ? WHERE target_title = ? AND target_page_id IS NULL',
+        ).run(pageId, page.title);
+      }
+    }
+  });
+  tx();
+  return ids.length;
+}
+
+export type ArchivedPage = {
+  id: string;
+  title: string;
+  icon: string | null;
+  archivedAt: string;
+  excerpt: string;
+  descendants: number;
+};
+
+/** Trash contents: only the top of each archived subtree, not every child. */
+export function listArchived(): ArchivedPage[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT p.id, p.title, p.icon, p.archived_at, substr(p.plain_text, 1, 140) AS excerpt
+         FROM pages p
+        WHERE p.archived_at IS NOT NULL
+          AND (p.parent_id IS NULL
+               OR p.parent_id NOT IN (SELECT id FROM pages WHERE archived_at IS NOT NULL))
+        ORDER BY p.archived_at DESC`,
+    )
+    .all() as {
+    id: string; title: string; icon: string | null; archived_at: string; excerpt: string;
+  }[];
+
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    icon: r.icon,
+    archivedAt: r.archived_at,
+    excerpt: r.excerpt,
+    descendants: subtreeIds(r.id).length - 1,
+  }));
+}
+
+/** Permanent removal, reachable only from the trash screen. */
 export function deletePage(id: string) {
   const db = getDb();
+  const ids = subtreeIds(id);
   const tx = db.transaction(() => {
     // search_docs has ON DELETE CASCADE, but fts_docs is contentless and has no
-    // foreign keys, so its rows must be removed explicitly first.
-    removeSearchDoc(db, { kind: 'page', pageId: id });
+    // foreign keys, so its rows must be removed explicitly first — for every
+    // page in the subtree, since the cascade would take them all.
+    for (const pageId of ids) removeSearchDoc(db, { kind: 'page', pageId });
     db.prepare('DELETE FROM pages WHERE id = ?').run(id);
   });
   tx();
@@ -241,6 +354,59 @@ export function getUnresolvedLinks(pageId: string): string[] {
       .prepare('SELECT target_title FROM links WHERE source_page_id = ? AND target_page_id IS NULL')
       .all(pageId) as { target_title: string }[]
   ).map((r) => r.target_title);
+}
+
+export type PageTag = { name: string; source: string };
+
+export function getPageTags(pageId: string): PageTag[] {
+  return getDb()
+    .prepare(
+      `SELECT t.name, pt.source FROM page_tags pt
+         JOIN tags t ON t.id = pt.tag_id
+        WHERE pt.page_id = ? ORDER BY t.name`,
+    )
+    .all(pageId) as PageTag[];
+}
+
+/**
+ * Add or remove tags on a page.
+ *
+ * `source` records where a tag came from. Tags written as #hashtags in the body
+ * are re-derived from the document on every save, so anything applied here is
+ * recorded separately — otherwise accepting an AI suggestion would silently
+ * vanish the next time the note was edited.
+ */
+export function setPageTags(
+  pageId: string,
+  changes: { add?: string[]; remove?: string[]; source?: string },
+): PageTag[] {
+  const db = getDb();
+  const source = changes.source ?? 'manual';
+
+  const tx = db.transaction(() => {
+    for (const raw of changes.add ?? []) {
+      const name = raw.trim().replace(/^#/, '');
+      if (!name) continue;
+      db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').run(name);
+      const tag = db.prepare('SELECT id FROM tags WHERE name = ?').get(name) as { id: number };
+      db.prepare('INSERT OR IGNORE INTO page_tags (page_id, tag_id, source) VALUES (?, ?, ?)')
+        .run(pageId, tag.id, source);
+    }
+    for (const raw of changes.remove ?? []) {
+      const name = raw.trim().replace(/^#/, '');
+      if (!name) continue;
+      db.prepare(
+        `DELETE FROM page_tags
+          WHERE page_id = ?
+            AND tag_id = (SELECT id FROM tags WHERE name = ?)
+            -- An inline #tag is owned by the document; removing it here would
+            -- just come back on the next save.
+            AND source <> 'inline'`,
+      ).run(pageId, name);
+    }
+  });
+  tx();
+  return getPageTags(pageId);
 }
 
 export function getSetting(key: string): string | null {

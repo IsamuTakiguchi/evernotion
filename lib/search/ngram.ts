@@ -1,11 +1,20 @@
 import { normalizeFold } from './normalize';
 
 /**
- * Hiragana, katakana, CJK ideographs (incl. Extension A and compatibility),
- * the iteration marks 々〆 and the long-vowel mark ー.
+ * Hiragana, katakana, CJK ideographs, the iteration marks 々〆 and the
+ * long-vowel mark ー.
+ *
+ * The supplementary range matters more than it looks. Extension B upwards
+ * holds characters that appear in ordinary Japanese names and place names
+ * (𠮷野, 𡈽屋). Omitting them does not merely weaken matching: the characters
+ * are then treated as separators and disappear from the index, so any name
+ * containing one becomes impossible to find at all.
+ *
+ * Written with explicit escapes and the u flag, so supplementary ranges are
+ * matched as whole codepoints rather than as lone surrogates.
  */
 const CJK =
-  /[぀-ヿ㐀-䶿一-鿿豈-﫿々〆ー]/;
+  /[\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3005\u3006\u30FC\u{20000}-\u{2FA1F}]/u;
 
 const LATIN = /[0-9a-z_]/;
 

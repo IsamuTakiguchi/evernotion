@@ -64,3 +64,9 @@ export const IconSpinner = ({ size = 16, className }: P) => (
 export const IconTag = ({ size, className }: P) => (
   <svg {...base(size)} className={className}><path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9z" /><circle cx="7.5" cy="7.5" r="1.4" fill="currentColor" /></svg>
 );
+export const IconX = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M6 6l12 12M18 6L6 18" /></svg>
+);
+export const IconMenu = ({ size, className }: P) => (
+  <svg {...base(size)} className={className}><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+);

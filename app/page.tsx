@@ -9,7 +9,7 @@ export default async function Home() {
   const tree = listPageTree();
 
   return (
-    <div className="mx-auto max-w-2xl px-8 py-20">
+    <div className="mx-auto max-w-2xl px-5 py-12 sm:px-8 sm:py-20">
       <div className="mb-6 flex items-center gap-3">
         <Logo size={44} />
         <div>

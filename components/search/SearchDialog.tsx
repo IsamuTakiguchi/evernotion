@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/client/api';
-import { IconFile, IconPdf, IconSearch, IconSpinner } from '@/components/ui/Icons';
+import { IconFile, IconPdf, IconSearch, IconSparkles, IconSpinner } from '@/components/ui/Icons';
 
 export type SnippetRun = { text: string; mark: boolean };
 
@@ -19,10 +19,21 @@ export type SearchHit = {
   score: number;
 };
 
+export type SemanticHit = {
+  kind: 'page' | 'pdf';
+  pageId: string | null;
+  attachmentId: string | null;
+  pdfPageNo: number | null;
+  title: string;
+  excerpt: string;
+  score: number;
+};
+
 export function SearchDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [semantic, setSemantic] = useState<SemanticHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +46,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!q.trim()) {
       setHits([]);
+      setSemantic([]);
       return;
     }
     let cancelled = false;
@@ -50,11 +62,41 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
         .catch(() => !cancelled && setHits([]))
         .finally(() => !cancelled && setLoading(false));
     }, 140);
+
+    // Meaning-based results are fetched separately and land a beat later, so
+    // the keyword list never waits on an embedding. Short fragments are
+    // usually someone typing a word, where this adds noise rather than insight.
+    let semanticTimer: ReturnType<typeof setTimeout> | undefined;
+    if (q.trim().length >= 4) {
+      semanticTimer = setTimeout(() => {
+        api
+          .get<{ hits: SemanticHit[] }>(`/api/search/semantic?q=${encodeURIComponent(q)}`)
+          .then((r) => !cancelled && setSemantic(r.hits))
+          .catch(() => !cancelled && setSemantic([]));
+      }, 350);
+    } else {
+      setSemantic([]);
+    }
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      clearTimeout(semanticTimer);
     };
   }, [q]);
+
+  const openSemantic = (hit: SemanticHit) => {
+    open({
+      kind: hit.kind,
+      pageId: hit.pageId,
+      title: hit.title,
+      icon: null,
+      attachmentId: hit.attachmentId,
+      filename: null,
+      pdfPageNo: hit.pdfPageNo,
+      snippet: [],
+      score: hit.score,
+    });
+  };
 
   const open = (hit: SearchHit) => {
     if (hit.kind === 'pdf' && hit.attachmentId) {
@@ -152,6 +194,48 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
               </span>
             </button>
           ))}
+
+          {(() => {
+            // Anything already shown above would just be a duplicate row.
+            const seen = new Set(
+              hits.map((h) => (h.kind === 'pdf' ? `pdf:${h.attachmentId}:${h.pdfPageNo}` : `page:${h.pageId}`)),
+            );
+            const extra = semantic.filter(
+              (h) => !seen.has(h.kind === 'pdf' ? `pdf:${h.attachmentId}:${h.pdfPageNo}` : `page:${h.pageId}`),
+            );
+            if (extra.length === 0) return null;
+            return (
+              <div className="border-t" style={{ background: 'var(--bg-subtle)' }}>
+                <div
+                  className="flex items-center gap-1.5 px-4 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wide"
+                  style={{ color: 'var(--text-faint)' }}
+                >
+                  <IconSparkles size={11} />
+                  意味が近いノート
+                </div>
+                {extra.map((hit, i) => (
+                  <button
+                    key={`sem-${hit.pageId ?? hit.attachmentId}-${hit.pdfPageNo ?? 0}-${i}`}
+                    onClick={() => openSemantic(hit)}
+                    className="flex w-full gap-3 px-4 py-2.5 text-left hover:bg-[var(--bg-hover)]"
+                  >
+                    <span className="mt-0.5 shrink-0" style={{ color: 'var(--text-faint)' }}>
+                      {hit.kind === 'pdf' ? <IconPdf size={15} /> : <IconFile size={15} />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13.5px] font-medium">{hit.title}</span>
+                      <span className="mt-0.5 block truncate text-[12px]" style={{ color: 'var(--text-muted)' }}>
+                        {hit.excerpt}
+                      </span>
+                    </span>
+                    <span className="shrink-0 self-center text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                      {Math.round(hit.score * 100)}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

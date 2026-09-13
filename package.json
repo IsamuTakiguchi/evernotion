@@ -18,7 +18,8 @@
     "postinstall": "node scripts/copy-pdfjs-assets.mjs",
     "e2e": "node scripts/e2e.mjs",
     "screenshot": "node scripts/screenshot.mjs",
-    "check-native": "node scripts/check-native.mjs"
+    "check-native": "node scripts/check-native.mjs",
+    "test": "node --import tsx --test tests/unit/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
@@ -62,6 +63,7 @@
     "postcss": "^8.5.28",
     "sharp": "^0.35.4",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.13",
     "typescript": "^5.9.3"
   }
 }

@@ -66,7 +66,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-10 py-12">
+    <div className="mx-auto max-w-2xl px-5 py-10 sm:px-10 sm:py-12">
       <h1 className="mb-8 flex items-center gap-2 text-2xl font-semibold tracking-tight">
         <IconSettings size={22} />
         設定

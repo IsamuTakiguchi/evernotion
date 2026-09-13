@@ -37,9 +37,12 @@ export async function vectorSearch(query: string, limit = 30): Promise<{ row: Ch
       `SELECT c.id, c.kind, c.page_id, c.attachment_id, c.pdf_page_no, c.text, c.embedding,
               p.title AS page_title, a.filename
          FROM chunks c
-         LEFT JOIN pages p ON p.id = c.page_id
          LEFT JOIN attachments a ON a.id = c.attachment_id
-        WHERE c.embedding IS NOT NULL`,
+         LEFT JOIN pages p ON p.id = COALESCE(c.page_id, a.page_id) AND p.archived_at IS NULL
+        WHERE c.embedding IS NOT NULL
+          -- Trashed notes must not resurface through meaning search or as a
+          -- citation in chat, the same way they are hidden from keyword search.
+          AND (COALESCE(c.page_id, a.page_id) IS NULL OR p.id IS NOT NULL)`,
     )
     .all() as ChunkRow[];
 
@@ -126,7 +129,11 @@ export async function retrieve(query: string, limit = 8): Promise<Source[]> {
 export async function relatedPages(pageId: string, limit = 5) {
   const db = getDb();
   const own = db
-    .prepare('SELECT embedding FROM chunks WHERE page_id = ? AND embedding IS NOT NULL')
+    .prepare(
+      `SELECT c.embedding FROM chunks c
+         JOIN pages p ON p.id = c.page_id AND p.archived_at IS NULL
+        WHERE c.page_id = ? AND c.embedding IS NOT NULL`,
+    )
     .all(pageId) as { embedding: Buffer }[];
   if (own.length === 0) return [];
 

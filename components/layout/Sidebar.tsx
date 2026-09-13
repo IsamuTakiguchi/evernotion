@@ -8,7 +8,7 @@ import { Logo } from './Logo';
 import { SetupStatus } from './SetupStatus';
 import {
   IconChevron, IconFile, IconGraph, IconMoon, IconPlus, IconSearch,
-  IconSettings, IconSparkles, IconSun, IconTag, IconTrash,
+  IconSettings, IconSparkles, IconSun, IconTag, IconTrash, IconX,
 } from '@/components/ui/Icons';
 
 export type PageTreeNode = {
@@ -25,9 +25,11 @@ type Props = {
   onOpenSearch: () => void;
   tree: PageTreeNode[];
   reloadTree: () => void;
+  /** Mobile: the sidebar is a drawer, so it needs to close itself. */
+  onClose?: () => void;
 };
 
-export function Sidebar({ onOpenSearch, tree, reloadTree }: Props) {
+export function Sidebar({ onOpenSearch, tree, reloadTree, onClose }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -75,6 +77,16 @@ export function Sidebar({ onOpenSearch, tree, reloadTree }: Props) {
         >
           {dark ? <IconSun size={15} /> : <IconMoon size={15} />}
         </button>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="rounded p-1.5 hover:bg-[var(--bg-hover)] lg:hidden"
+            style={{ color: 'var(--text-muted)' }}
+            aria-label="メニューを閉じる"
+          >
+            <IconX size={16} />
+          </button>
+        )}
       </div>
 
       <nav className="px-2 pb-2">
@@ -95,6 +107,7 @@ export function Sidebar({ onOpenSearch, tree, reloadTree }: Props) {
         <NavLink href="/chat" active={pathname === '/chat'} icon={<IconSparkles size={16} />} label="AIチャット" />
         <NavLink href="/graph" active={pathname === '/graph'} icon={<IconGraph size={16} />} label="グラフ" />
         <NavLink href="/tags" active={pathname.startsWith('/tags')} icon={<IconTag size={16} />} label="タグ" />
+        <NavLink href="/trash" active={pathname === '/trash'} icon={<IconTrash size={16} />} label="ゴミ箱" />
         <NavLink href="/settings" active={pathname === '/settings'} icon={<IconSettings size={16} />} label="設定" />
       </nav>
 
@@ -177,8 +190,10 @@ function TreeItem({
   const hasChildren = node.children.length > 0;
 
   const remove = async () => {
-    if (!confirm(`「${node.title || '無題'}」を削除しますか？ 子ページも削除されます。`)) return;
-    await api.del(`/api/pages/${node.id}`);
+    const children = node.children.length;
+    const extra = children > 0 ? `（子ページ${children}件も一緒に移動します）` : '';
+    if (!confirm(`「${node.title || '無題'}」をゴミ箱に移動しますか？${extra}\nゴミ箱から元に戻せます。`)) return;
+    await api.post(`/api/pages/${node.id}/archive`);
     reloadTree();
     if (active) router.push('/');
   };
@@ -223,8 +238,8 @@ function TreeItem({
           onClick={remove}
           className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-active)]"
           style={{ color: 'var(--text-muted)' }}
-          title="削除"
-          aria-label="削除"
+          title="ゴミ箱に移動"
+          aria-label="ゴミ箱に移動"
         >
           <IconTrash size={13} />
         </button>

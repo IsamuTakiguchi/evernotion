@@ -20,7 +20,7 @@ export default async function TagPage({ params }: { params: Promise<{ tag: strin
     .all(name) as { id: string; title: string; icon: string | null; excerpt: string }[];
 
   return (
-    <div className="mx-auto max-w-3xl px-10 py-12">
+    <div className="mx-auto max-w-3xl px-5 py-10 sm:px-10 sm:py-12">
       <Link href="/tags" className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
         ← すべてのタグ
       </Link>
