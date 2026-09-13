@@ -116,11 +116,23 @@ export function createPage(opts: {
 function syncLinks(pageId: string, doc: JSONContent) {
   const db = getDb();
   db.prepare('DELETE FROM links WHERE source_page_id = ?').run(pageId);
+
+  // An id recorded on the link wins over the title, so two notes sharing a
+  // name still link to the one the writer actually picked. The title lookup
+  // remains the fallback for links typed by hand.
   const insert = db.prepare(
     `INSERT OR IGNORE INTO links (source_page_id, target_title, target_page_id)
-     VALUES (?, ?, (SELECT id FROM pages WHERE title = ? AND archived_at IS NULL LIMIT 1))`,
+     VALUES (
+       ?, ?,
+       COALESCE(
+         (SELECT id FROM pages WHERE id = ? AND archived_at IS NULL),
+         (SELECT id FROM pages WHERE title = ? AND archived_at IS NULL LIMIT 1)
+       )
+     )`,
   );
-  for (const title of extractWikiLinks(doc)) insert.run(pageId, title, title);
+  for (const ref of extractWikiLinks(doc)) {
+    insert.run(pageId, ref.title, ref.pageId, ref.title);
+  }
 }
 
 /** Replace the AI/manual tag set derived from inline #tags, keeping manual tags intact. */

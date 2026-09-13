@@ -55,30 +55,50 @@ function isLiteral(node: JSONContent): boolean {
   return node.type === 'codeBlock' || !!node.marks?.some((m) => m.type === 'code');
 }
 
-/** Collect every [[wikilink]] target title referenced by a document. */
-export function extractWikiLinks(doc: JSONContent | null | undefined): string[] {
+export type WikiLinkRef = {
+  title: string;
+  /** Set when the link was chosen from autocomplete, which names an exact page. */
+  pageId: string | null;
+};
+
+/**
+ * Collect every [[wikilink]] in a document.
+ *
+ * Keeps the target's page id when the node carries one. Resolving purely by
+ * title would send a link to whichever page happens to hold that title first,
+ * which is the wrong page as soon as two notes share a name.
+ */
+export function extractWikiLinks(doc: JSONContent | null | undefined): WikiLinkRef[] {
   if (!doc) return [];
-  const titles = new Set<string>();
+  const byTitle = new Map<string, WikiLinkRef>();
+
+  const add = (title: string, pageId: string | null) => {
+    const key = title.trim();
+    if (!key) return;
+    const existing = byTitle.get(key);
+    // An explicit id is better information than the same title without one.
+    if (!existing) byTitle.set(key, { title: key, pageId });
+    else if (!existing.pageId && pageId) existing.pageId = pageId;
+  };
 
   const walk = (node: JSONContent) => {
     if (isLiteral(node)) return;
 
     if (node.type === 'wikiLink') {
-      const title = String(node.attrs?.title ?? '').trim();
-      if (title) titles.add(title);
+      const pageId = node.attrs?.pageId;
+      add(String(node.attrs?.title ?? ''), typeof pageId === 'string' ? pageId : null);
     }
     // Also honour links typed as raw text, so pasted markdown still links up.
     if (node.text) {
       for (const m of node.text.matchAll(/\[\[([^\[\]|]{1,200})\]\]/g)) {
-        const title = m[1].trim();
-        if (title) titles.add(title);
+        add(m[1], null);
       }
     }
     if (node.content) for (const child of node.content) walk(child);
   };
 
   walk(doc);
-  return [...titles];
+  return [...byTitle.values()];
 }
 
 /** Collect #tags written inline in the document body. */

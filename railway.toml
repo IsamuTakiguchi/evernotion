@@ -1,0 +1,22 @@
+# Railway deployment.
+#
+# A volume MUST be attached at /data. Railway container filesystems are
+# ephemeral: without it every note, uploaded PDF and downloaded model is
+# destroyed on each deploy and restart.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# /api/health is reachable without a session precisely so this probe works.
+healthcheckPath = "/api/health"
+# Generous: the first boot downloads ~170MB of OCR and embedding models.
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+# Only one instance may run. SQLite is a single-writer file on a single volume,
+# and the PDF ingest queue is in-process, so a second replica would race the
+# first for the write lock and duplicate work.
+numReplicas = 1

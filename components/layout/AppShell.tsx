@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { api } from '@/lib/client/api';
 import { Sidebar, type PageTreeNode } from './Sidebar';
 import { SearchDialog } from '@/components/search/SearchDialog';
@@ -10,17 +11,22 @@ import { SearchDialog } from '@/components/search/SearchDialog';
  * and a save in the editor can refresh the sidebar title without a reload.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [tree, setTree] = useState<PageTreeNode[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
+  // The login screen stands alone: there is no session yet, so every request
+  // the sidebar would make is going to come back 401.
+  const bare = pathname === '/login';
 
   const reloadTree = useCallback(() => {
+    if (bare) return;
     api
       .get<{ tree: PageTreeNode[] }>('/api/pages')
       .then((r) => setTree(r.tree))
       .catch(() => {
         /* the sidebar simply stays as it is */
       });
-  }, []);
+  }, [bare]);
 
   useEffect(() => {
     reloadTree();
@@ -47,6 +53,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  if (bare) return <>{children}</>;
 
   return (
     <div className="flex h-screen overflow-hidden">

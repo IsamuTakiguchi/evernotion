@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSetting, setSetting } from '@/lib/db/queries';
 import { isAiEnabled } from '@/lib/ai/client';
+import { isProtected } from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,7 @@ export async function GET() {
     hasStoredKey: !!stored,
     fromEnv: !!process.env.ANTHROPIC_API_KEY?.trim(),
     keyPreview: stored ? `${stored.slice(0, 8)}…${stored.slice(-4)}` : null,
+    protected: isProtected(),
   });
 }
 

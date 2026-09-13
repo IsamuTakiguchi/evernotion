@@ -1,0 +1,20 @@
+# Keep the image build context minimal and, above all, private.
+#
+# `data/` holds the notes database and every uploaded file. Next.js dependency
+# tracing sweeps in the project root, so leaving it here would bake a
+# developer's own notes into the published image.
+data
+.next
+node_modules
+.git
+.github
+.tmp
+.screens
+
+# Not needed to run the server.
+tests
+.env
+.env.*
+!.env.example
+*.md
+!README.md

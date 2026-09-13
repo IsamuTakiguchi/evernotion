@@ -6,6 +6,12 @@
  *   EVERNOTION_DATA_DIR=.tmp/smoke npm run build && npx next start -p 3210
  *   node scripts/smoke.mjs http://127.0.0.1:3210
  *
+ * Also works against a deployed instance, which is the quickest way to confirm
+ * a Railway deploy is actually sound rather than merely responding:
+ *   EVERNOTION_PASSWORD=… node scripts/smoke.mjs https://your-app.up.railway.app
+ * Note that it writes notes and uploads PDFs, so point it at a scratch
+ * deployment rather than one holding real notes.
+ *
  * It exercises the paths that are easy to break and hard to notice:
  * Japanese search (including the 2-character case), PDF text extraction,
  * OCR of a scanned page, wikilinks and backlinks, and the promise that the
@@ -31,15 +37,20 @@ function check(name, ok, detail = '') {
   }
 }
 
+/** Session cookie, set once if the target turns out to be password-protected. */
+let cookie = null;
+
+const authHeaders = (extra = {}) => (cookie ? { ...extra, Cookie: cookie } : extra);
+
 const get = async (p) => {
-  const res = await fetch(BASE + p);
+  const res = await fetch(BASE + p, { headers: authHeaders() });
   if (!res.ok) throw new Error(`GET ${p} -> ${res.status}`);
   return res.json();
 };
 const post = async (p, body) => {
   const res = await fetch(BASE + p, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json().catch(() => ({})) };
@@ -47,12 +58,16 @@ const post = async (p, body) => {
 const patch = async (p, body) => {
   const res = await fetch(BASE + p, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`PATCH ${p} -> ${res.status}`);
   return res.json();
 };
+
+const rawStatus = async (p) => (await fetch(BASE + p, { redirect: 'manual' })).status;
+const rawStatusWithCookie = async (p) =>
+  (await fetch(BASE + p, { headers: authHeaders(), redirect: 'manual' })).status;
 
 const searchHits = async (q, extra = '') =>
   (await get(`/api/search?q=${encodeURIComponent(q)}${extra}`)).hits;
@@ -66,6 +81,53 @@ async function main() {
   console.log('health');
   const health = await get('/api/health');
   check('server is up and migrated', health.ok === true);
+
+  // --- access control -----------------------------------------------------
+  // The gate only exists when EVERNOTION_PASSWORD is set, which is how a
+  // deployed instance should be configured and a local one need not be.
+  if (health.protected) {
+    console.log('\naccess control');
+    const password = process.env.EVERNOTION_PASSWORD;
+
+    check('protected instances do not report their contents',
+      health.pages === undefined && health.searchDocs === undefined);
+    check('notes are not readable without a session', (await rawStatus('/api/pages')) === 401);
+    check('uploaded files are not readable without a session',
+      (await rawStatus('/api/attachments/probe/file')) === 401);
+    check('the app redirects to the login page', (await rawStatus('/')) === 307);
+    check('the login page itself is reachable', (await rawStatus('/login')) === 200);
+
+    const wrong = await fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'definitely-not-the-password' }),
+    });
+    check('a wrong password is rejected', wrong.status === 401);
+
+    if (!password) {
+      console.log('\n  この環境はパスワード保護されています。');
+      console.log('  EVERNOTION_PASSWORD=… を付けて再実行すると残りも検証します。');
+      console.log(`\n${passed} passed, ${failures.length} failed`);
+      process.exit(failures.length ? 1 : 0);
+    }
+
+    const login = await fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const setCookie = login.headers.get('set-cookie') ?? '';
+    cookie = setCookie.split(';')[0];
+    check('the correct password is accepted', login.status === 200);
+    check('a session cookie is issued', cookie.startsWith('ev_session='));
+    check('the session cookie is HttpOnly', /httponly/i.test(setCookie));
+    check('a tampered session is rejected',
+      (await fetch(`${BASE}/api/pages`, { headers: { Cookie: 'ev_session=9999999999999.bad' } })).status === 401);
+    check('a valid session unlocks the app', (await rawStatusWithCookie('/api/pages')) === 200);
+  } else {
+    console.log('\naccess control');
+    check('an unprotected instance says so plainly', health.protected === false);
+  }
 
   // --- first run ----------------------------------------------------------
   console.log('\nfirst-run setup');
@@ -95,9 +157,12 @@ async function main() {
     !seededTags.includes('タグ'), seededTags.join(', '));
 
   const seededGraph = await get('/api/graph');
-  check('the seeded graph has no phantom nodes',
-    seededGraph.nodes.filter((n) => n.ghost).length === 0,
-    seededGraph.nodes.filter((n) => n.ghost).map((n) => n.title).join(', '));
+  const ghostTitles = seededGraph.nodes.filter((n) => n.ghost).map((n) => n.title);
+  // Not "no ghosts at all": a real database legitimately has dangling links,
+  // and this suite creates one itself further down. The bug being guarded
+  // against is the welcome note's own syntax example becoming a page.
+  check('the welcome note does not invent a page from its syntax example',
+    !ghostTitles.includes('ノート名'), ghostTitles.join(', '));
 
   // --- notes, wikilinks, backlinks ---------------------------------------
   console.log('\nnotes and links');
@@ -133,7 +198,8 @@ async function main() {
   const targetDetail = await get(`/api/pages/${targetId}`);
   check(
     'a wikilink creates a backlink on its target',
-    targetDetail.backlinks.some((b) => b.title === '取締役会メモ'),
+    targetDetail.backlinks.some((b) => b.id === noteId),
+    targetDetail.backlinks.map((b) => `${b.title}(${b.id})`).join(', '),
   );
 
   const noteDetail = await get(`/api/pages/${noteId}`);
@@ -206,7 +272,12 @@ async function main() {
       const buf = fs.readFileSync(path.join(root, 'tests/fixtures', name));
       form.append('file', new Blob([buf], { type: 'application/pdf' }), name);
       form.append('pageId', noteId);
-      const res = await fetch(`${BASE}/api/attachments`, { method: 'POST', body: form });
+      const res = await fetch(`${BASE}/api/attachments`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: form,
+      });
+      if (!res.ok) throw new Error(`upload ${name} -> ${res.status}`);
       const json = await res.json();
       ids[name] = json.attachment.id;
     }
@@ -258,25 +329,29 @@ async function main() {
 
     const pdfHits = await searchHits('目的外使用', '&kind=pdf');
     check('text inside a PDF is searchable', pdfHits.length > 0);
+    // Scope to this run's upload: an earlier run may have left same-named
+    // attachments in the database, and they would rank alongside it.
+    const ownHit = pdfHits.find((h) => h.attachmentId === ids['fixture-text.pdf']);
     check('a PDF hit points at the page it was found on',
-      pdfHits[0]?.pdfPageNo >= 1 && !!pdfHits[0]?.attachmentId);
+      ownHit?.pdfPageNo >= 1 && !!ownHit?.attachmentId);
     // A pdf search row stores no page of its own, so this has to be resolved
     // through the attachment — otherwise clicking the result goes nowhere.
     check('a PDF hit carries the note it was uploaded into',
-      pdfHits[0]?.pageId === noteId, `got ${pdfHits[0]?.pageId}`);
+      ownHit?.pageId === noteId, `got ${ownHit?.pageId}`);
 
     const scanHits = (await searchHits('秘密保持', '&kind=pdf')).filter(
-      (h) => h.filename === 'fixture-scan.pdf',
+      (h) => h.attachmentId === ids['fixture-scan.pdf'],
     );
     check('OCR text from a scanned PDF is searchable', scanHits.length > 0);
 
-    const page2Hits = await searchHits('上方修正', '&kind=pdf');
+    const page2Hits = (await searchHits('上方修正', '&kind=pdf'))
+      .filter((h) => h.attachmentId === ids['fixture-text.pdf']);
     check('a match on page 2 reports page 2', page2Hits[0]?.pdfPageNo === 2,
       `got page ${page2Hits[0]?.pdfPageNo}`);
     check('PDF snippets are highlighted', page2Hits[0]?.snippet.some((r) => r.mark));
 
     const fileRes = await fetch(`${BASE}/api/attachments/${ids['fixture-text.pdf']}/file`, {
-      headers: { Range: 'bytes=0-99' },
+      headers: authHeaders({ Range: 'bytes=0-99' }),
     });
     check('the PDF file is served with range support', fileRes.status === 206);
   }

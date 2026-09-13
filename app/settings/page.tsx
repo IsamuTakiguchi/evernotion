@@ -9,6 +9,7 @@ type SettingsInfo = {
   hasStoredKey: boolean;
   fromEnv: boolean;
   keyPreview: string | null;
+  protected: boolean;
 };
 
 type AiStatus = {
@@ -158,6 +159,24 @@ export default function SettingsPage() {
         >
           {message.text}
         </p>
+      )}
+
+      {info?.protected && (
+        <section className="mb-10">
+          <h2 className="mb-1 text-[15px] font-medium">セッション</h2>
+          <p className="mb-3 text-[13px]" style={{ color: 'var(--text-muted)' }}>
+            この環境はパスワードで保護されています。
+          </p>
+          <button
+            onClick={async () => {
+              await fetch('/api/auth/logout', { method: 'POST' });
+              window.location.href = '/login';
+            }}
+            className="rounded border px-3 py-1.5 text-[13px] hover:bg-[var(--bg-hover)]"
+          >
+            ログアウト
+          </button>
+        </section>
       )}
 
       <section className="mt-12 border-t pt-6 text-[12.5px] leading-relaxed" style={{ color: 'var(--text-faint)' }}>
