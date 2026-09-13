@@ -7,6 +7,10 @@
  *   npx next start -p 3210 &
  *   node scripts/e2e.mjs http://127.0.0.1:3210
  *
+ * Against a password-protected deployment, pass the password so it can log in:
+ *   EVERNOTION_PASSWORD=… node scripts/e2e.mjs https://your-app.up.railway.app
+ * It writes notes, so point it at a scratch deployment rather than real ones.
+ *
  * Run it against a production server: `next dev`'s HMR client aborts hydration
  * when its websocket cannot connect, which makes every interaction fail for a
  * reason that has nothing to do with the app.
@@ -44,7 +48,54 @@ function check(name, ok, detail = '') {
 
 const exe = chromiumExecutable();
 const browser = await chromium.launch(exe ? { executablePath: exe } : {});
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+
+/**
+ * Session cookie, when the target is password-protected. It has to reach both
+ * the browser and this script's own fetch calls, or half the suite gets login
+ * redirects where it expected JSON.
+ */
+let cookie = null;
+const authHeaders = (extra = {}) => (cookie ? { ...extra, Cookie: cookie } : extra);
+const apiFetch = (path, init = {}) =>
+  fetch(BASE + path, { ...init, headers: authHeaders(init.headers ?? {}) });
+
+const health = await (await fetch(`${BASE}/api/health`)).json();
+if (health.protected) {
+  const password = process.env.EVERNOTION_PASSWORD;
+  if (!password) {
+    console.log('この環境はパスワード保護されています。');
+    console.log('EVERNOTION_PASSWORD=… を付けて再実行してください。');
+    await browser.close();
+    process.exit(1);
+  }
+  const login = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!login.ok) {
+    console.log(`ログインに失敗しました (${login.status})`);
+    await browser.close();
+    process.exit(1);
+  }
+  cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
+}
+
+const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+if (cookie) {
+  const [name, ...rest] = cookie.split('=');
+  await context.addCookies([
+    {
+      name,
+      value: rest.join('='),
+      domain: new URL(BASE).hostname,
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Lax',
+    },
+  ]);
+}
+const page = await context.newPage();
 
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(String(e)));
@@ -57,7 +108,7 @@ const editor = () => page.locator('.ProseMirror');
 
 try {
   // A page to work in.
-  const res = await fetch(`${BASE}/api/pages`, {
+  const res = await apiFetch('/api/pages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: 'E2E作業ノート' }),
@@ -65,7 +116,7 @@ try {
   const { page: created } = await res.json();
   const noteId = created.id;
 
-  await fetch(`${BASE}/api/pages`, {
+  await apiFetch('/api/pages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: '参照先ノート' }),
@@ -80,7 +131,7 @@ try {
   await editor().click();
   await page.keyboard.type('議事録の下書きです。');
   await page.waitForTimeout(1800); // past the 800ms autosave debounce
-  const saved = await (await fetch(`${BASE}/api/pages/${noteId}`)).json();
+  const saved = await (await apiFetch(`/api/pages/${noteId}`)).json();
   check('typed text is autosaved', saved.page.plain_text.includes('議事録の下書き'),
     saved.page.plain_text.slice(0, 40));
 
@@ -98,7 +149,7 @@ try {
     await page.waitForTimeout(400);
     await page.keyboard.type('第1章');
     await page.waitForTimeout(1800);
-    const afterHeading = await (await fetch(`${BASE}/api/pages/${noteId}`)).json();
+    const afterHeading = await (await apiFetch(`/api/pages/${noteId}`)).json();
     const hasHeading = JSON.stringify(afterHeading.page.doc).includes('"heading"');
     check('choosing a block from the menu inserts it', hasHeading);
   }
@@ -119,13 +170,13 @@ try {
   if (suggestionVisible) {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(1800);
-    const linked = await (await fetch(`${BASE}/api/pages/${noteId}`)).json();
+    const linked = await (await apiFetch(`/api/pages/${noteId}`)).json();
     check('choosing a suggestion inserts a wikilink',
       JSON.stringify(linked.page.doc).includes('"wikiLink"'));
     check('the wikilink renders in the editor',
       await page.locator('.ev-wikilink').first().isVisible().catch(() => false));
 
-    const graph = await (await fetch(`${BASE}/api/graph`)).json();
+    const graph = await (await apiFetch('/api/graph')).json();
     check('the new link reaches the graph',
       graph.links.length > 0 && graph.nodes.some((n) => n.title === '参照先ノート'));
   }
@@ -163,7 +214,7 @@ try {
   // layer never appears and there is nothing to highlight.
   console.log('\nPDF viewer');
   const pdfHit = (
-    await (await fetch(`${BASE}/api/search?q=${encodeURIComponent('目的外使用')}&kind=pdf`)).json()
+    await (await apiFetch(`/api/search?q=${encodeURIComponent('目的外使用')}&kind=pdf`)).json()
   ).hits[0];
 
   if (!pdfHit) {
@@ -216,9 +267,8 @@ try {
   // The app is reachable from a phone once deployed, where a fixed 260px
   // sidebar would leave almost nothing for the note itself.
   console.log('\nmobile layout');
-  const phone = await browser.newPage({
-    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
-  });
+  const phone = await context.newPage();
+  await phone.setViewportSize({ width: 390, height: 844 });
   const phoneErrors = [];
   phone.on('pageerror', (e) => phoneErrors.push(String(e)));
 
@@ -257,14 +307,14 @@ try {
   // --- trash --------------------------------------------------------------
   console.log('\ntrash');
   const { page: doomed } = await (
-    await fetch(`${BASE}/api/pages`, {
+    await apiFetch('/api/pages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'UIゴミ箱テスト' }),
     })
   ).json();
 
-  await fetch(`${BASE}/api/pages/${doomed.id}/archive`, { method: 'POST' });
+  await apiFetch(`/api/pages/${doomed.id}/archive`, { method: 'POST' });
   await page.goto(`${BASE}/trash`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1000);
 
