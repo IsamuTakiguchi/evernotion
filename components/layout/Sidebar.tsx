@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/client/api';
 import { Logo } from './Logo';
+import { SetupStatus } from './SetupStatus';
 import {
   IconChevron, IconFile, IconGraph, IconMoon, IconPlus, IconSearch,
   IconSettings, IconSparkles, IconSun, IconTag, IconTrash,
@@ -135,6 +136,8 @@ export function Sidebar({ onOpenSearch, tree, reloadTree }: Props) {
           ))
         )}
       </div>
+
+      <SetupStatus />
     </aside>
   );
 }

@@ -67,6 +67,38 @@ async function main() {
   const health = await get('/api/health');
   check('server is up and migrated', health.ok === true);
 
+  // --- first run ----------------------------------------------------------
+  console.log('\nfirst-run setup');
+  const setup = await get('/api/setup/status');
+  check('startup reports its state', ['starting', 'downloading', 'ready', 'error'].includes(setup.phase),
+    setup.phase);
+
+  const tree = (await get('/api/pages')).tree;
+  check('an empty database is seeded with welcome notes',
+    tree.some((n) => n.title === 'はじめに'),
+    tree.map((n) => n.title).join(', '));
+  const welcome = tree.find((n) => n.title === 'はじめに');
+  check('the welcome note has child notes', (welcome?.children.length ?? 0) >= 2);
+
+  if (welcome) {
+    const detail = await get(`/api/pages/${welcome.id}`);
+    // The welcome note shows [[…]] and #… as syntax examples inside code spans.
+    // Treating those as real markup would invent a page and a tag on first run.
+    check('syntax examples in code spans do not create links',
+      !detail.unresolved.includes('ノート名'), detail.unresolved.join(', '));
+    check('the welcome note still links to its children',
+      detail.page.doc && JSON.stringify(detail.page.doc).includes('wikiLink'));
+  }
+
+  const seededTags = (await get('/api/tags')).tags.map((t) => t.name);
+  check('syntax examples in code spans do not create tags',
+    !seededTags.includes('タグ'), seededTags.join(', '));
+
+  const seededGraph = await get('/api/graph');
+  check('the seeded graph has no phantom nodes',
+    seededGraph.nodes.filter((n) => n.ghost).length === 0,
+    seededGraph.nodes.filter((n) => n.ghost).map((n) => n.title).join(', '));
+
   // --- notes, wikilinks, backlinks ---------------------------------------
   console.log('\nnotes and links');
   const { body: created } = await post('/api/pages', { title: '取締役会メモ' });

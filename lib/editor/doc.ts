@@ -45,12 +45,24 @@ export function firstLine(doc: JSONContent | null | undefined): string {
   return (line ?? '').trim().slice(0, 120);
 }
 
+/**
+ * Text that is marked as code, or sits inside a code block, is quoted rather
+ * than written — `[[foo]]` in a snippet is an example of the syntax, not a use
+ * of it, and turning it into a link would invent a page the user never asked
+ * for. The same reasoning applies to `#include` and inline tags.
+ */
+function isLiteral(node: JSONContent): boolean {
+  return node.type === 'codeBlock' || !!node.marks?.some((m) => m.type === 'code');
+}
+
 /** Collect every [[wikilink]] target title referenced by a document. */
 export function extractWikiLinks(doc: JSONContent | null | undefined): string[] {
   if (!doc) return [];
   const titles = new Set<string>();
 
   const walk = (node: JSONContent) => {
+    if (isLiteral(node)) return;
+
     if (node.type === 'wikiLink') {
       const title = String(node.attrs?.title ?? '').trim();
       if (title) titles.add(title);
@@ -74,6 +86,7 @@ export function extractInlineTags(doc: JSONContent | null | undefined): string[]
   if (!doc) return [];
   const tags = new Set<string>();
   const walk = (node: JSONContent) => {
+    if (isLiteral(node)) return;
     if (node.text) {
       for (const m of node.text.matchAll(/(?:^|\s)#([\p{L}\p{N}_\-/]{1,50})/gu)) {
         tags.add(m[1]);

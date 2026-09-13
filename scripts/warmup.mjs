@@ -1,67 +1,21 @@
 #!/usr/bin/env node
 /**
- * Pre-download the models the app uses, so the first PDF upload and the first
- * semantic search don't stall on a large fetch.
+ * Pre-fetch the OCR and embedding models.
  *
- *   tesseract jpn + eng traineddata   ~27 MB
- *   multilingual-e5-small (q8) ONNX   ~140 MB
- *
- * Optional: both are fetched on demand otherwise. Run it once after install,
- * or before going offline.
+ * Optional: the server downloads these by itself on first start, and fetches
+ * them on demand if that fails. Run this to front-load the wait, or to prepare
+ * a machine that will be offline.
  */
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { pipeline as streamPipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
+import { ensureModels, resolveDataDir } from '../lib/setup/models.mjs';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dataDir = process.env.EVERNOTION_DATA_DIR
-  ? path.resolve(process.env.EVERNOTION_DATA_DIR)
-  : path.join(root, 'data');
-
-const TESSDATA_BASE = 'https://tessdata.projectnaptha.com/4.0.0';
-const LANGS = ['jpn', 'eng'];
-
-async function fetchTessdata() {
-  const dir = path.join(dataDir, 'models', 'tessdata');
-  fs.mkdirSync(dir, { recursive: true });
-
-  for (const lang of LANGS) {
-    const target = path.join(dir, `${lang}.traineddata.gz`);
-    if (fs.existsSync(target)) {
-      console.log(`tessdata ${lang}: already present`);
-      continue;
-    }
-    process.stdout.write(`tessdata ${lang}: downloading… `);
-    const res = await fetch(`${TESSDATA_BASE}/${lang}.traineddata.gz`);
-    if (!res.ok || !res.body) throw new Error(`failed to fetch ${lang}: HTTP ${res.status}`);
-    // Write to a temp name first so an interrupted run never leaves a partial
-    // file that later looks like a valid cache entry.
-    const tmp = `${target}.partial`;
-    await streamPipeline(Readable.fromWeb(res.body), fs.createWriteStream(tmp));
-    fs.renameSync(tmp, target);
-    console.log(`${(fs.statSync(target).size / 1e6).toFixed(1)} MB`);
-  }
-}
-
-async function fetchEmbeddingModel() {
-  process.stdout.write('embedding model: loading… ');
-  process.env.TRANSFORMERS_CACHE ??= path.join(dataDir, 'models', 'hub');
-  const { pipeline } = await import('@huggingface/transformers');
-  const extractor = await pipeline('feature-extraction', 'Xenova/multilingual-e5-small', {
-    dtype: 'q8',
-  });
-  const out = await extractor(['passage: 動作確認'], { pooling: 'mean', normalize: true });
-  console.log(`ready (${out.dims.join('x')})`);
-}
+console.log(`data directory: ${resolveDataDir()}`);
 
 try {
-  await fetchTessdata();
-  await fetchEmbeddingModel();
+  await ensureModels({ onProgress: (message) => console.log(`  ${message}`) });
   console.log('\nすべてのモデルの準備が完了しました。オフラインでも動作します。');
 } catch (err) {
-  console.error(`\nwarmup failed: ${err.message}`);
-  console.error('ネットワークを確認してください。未取得でもアプリは動きますが、初回利用時にダウンロードが走ります。');
+  console.error(`\nモデルの取得に失敗しました: ${err.message}`);
+  console.error('アプリ自体は動作します（ノート・検索・テキスト層のあるPDF）。');
+  console.error('OCRと意味検索は、次に使うときに再度ダウンロードを試みます。');
   process.exit(1);
 }
