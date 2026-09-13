@@ -9,11 +9,11 @@ export const maxDuration = 600;
 
 /** Rebuild the keyword index and, optionally, every embedding. */
 export async function POST(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const body = (await req.json().catch(() => ({}))) as { embeddings?: boolean };
-  const search = rebuildIndex();
-  const embeddings = body.embeddings ? await reindexAll() : null;
+  const search = rebuildIndex(session.userId);
+  const embeddings = body.embeddings ? await reindexAll(session.userId) : null;
   return NextResponse.json({ search, embeddings });
 }

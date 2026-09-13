@@ -7,13 +7,13 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   if (!isAiEnabled()) return noKeyResponse();
 
   const { pageId } = (await req.json().catch(() => ({}))) as { pageId?: string };
-  const page = pageId ? getPage(pageId) : undefined;
+  const page = pageId ? getPage(session.userId, pageId) : undefined;
   if (!page) return NextResponse.json({ error: 'page not found' }, { status: 404 });
   if (!page.plain_text.trim()) return NextResponse.json({ summary: '（本文が空です）' });
 

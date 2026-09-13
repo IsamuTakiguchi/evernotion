@@ -8,7 +8,7 @@
  *
  * Also works against a deployed instance, which is the quickest way to confirm
  * a Railway deploy is actually sound rather than merely responding:
- *   EVERNOTION_PASSWORD=… node scripts/smoke.mjs https://your-app.up.railway.app
+ *   EVERNOTION_SESSION=… node scripts/smoke.mjs https://your-app.up.railway.app
  * Note that it writes notes and uploads PDFs, so point it at a scratch
  * deployment rather than one holding real notes.
  *
@@ -83,50 +83,69 @@ async function main() {
   check('server is up and migrated', health.ok === true);
 
   // --- access control -----------------------------------------------------
-  // The gate only exists when EVERNOTION_PASSWORD is set, which is how a
-  // deployed instance should be configured and a local one need not be.
-  if (health.protected) {
-    console.log('\naccess control');
-    const password = process.env.EVERNOTION_PASSWORD;
+  //
+  // Sign-in is Google's, so this script cannot complete a login on its own.
+  // What it can do — and what actually matters on a public URL — is prove the
+  // gate is shut. To check the rest against a real deployment, sign in with a
+  // browser, copy the ev_session cookie out of devtools and pass it as
+  // EVERNOTION_SESSION.
+  console.log('\naccess control');
 
-    check('protected instances do not report their contents',
+  if (health.authMode === 'google' || health.authMode === 'locked') {
+    check('a gated instance does not report its contents',
       health.pages === undefined && health.searchDocs === undefined);
-    check('notes are not readable without a session', (await rawStatus('/api/pages')) === 401);
+
+    const gated = health.authMode === 'google' ? 401 : 503;
+    check('notes are not readable without a session', (await rawStatus('/api/pages')) === gated);
     check('uploaded files are not readable without a session',
-      (await rawStatus('/api/attachments/probe/file')) === 401);
-    check('the app redirects to the login page', (await rawStatus('/')) === 307);
+      (await rawStatus('/api/attachments/probe/file')) === gated);
+    check('a forged session cookie is rejected',
+      (await fetch(`${BASE}/api/pages`, { headers: { Cookie: 'ev_session=u_x:9999999999999.bad' } }))
+        .status === gated);
     check('the login page itself is reachable', (await rawStatus('/login')) === 200);
 
-    const wrong = await fetch(`${BASE}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: 'definitely-not-the-password' }),
-    });
-    check('a wrong password is rejected', wrong.status === 401);
+    if (health.authMode === 'google') {
+      check('the app redirects to the login page', (await rawStatus('/')) === 307);
 
-    if (!password) {
-      console.log('\n  この環境はパスワード保護されています。');
-      console.log('  EVERNOTION_PASSWORD=… を付けて再実行すると残りも検証します。');
+      // The sign-in button must actually reach Google, with PKCE and the
+      // account chooser. A misconfigured redirect_uri fails here rather than
+      // as an error page a user has to interpret.
+      const start = await fetch(`${BASE}/api/auth/google/start`, { redirect: 'manual' });
+      const target = start.headers.get('location') ?? '';
+      check('sign-in sends the browser to Google', start.status === 307 || start.status === 302);
+      check('…at Google\'s authorization endpoint',
+        target.startsWith('https://accounts.google.com/o/oauth2/v2/auth'));
+      const params = target.includes('?') ? new URLSearchParams(target.split('?')[1]) : new URLSearchParams();
+      check('…with PKCE', params.get('code_challenge_method') === 'S256' && !!params.get('code_challenge'));
+      check('…asking for the account chooser', params.get('prompt') === 'select_account');
+      check('…over https', (params.get('redirect_uri') ?? '').startsWith('https://')
+        || BASE.startsWith('http://127.0.0.1') || BASE.startsWith('http://localhost'));
+      check('the round-trip state is carried in an HttpOnly cookie',
+        /httponly/i.test(start.headers.get('set-cookie') ?? ''));
+
+      // A callback with no state cookie is a forged or stale one.
+      const forged = await fetch(`${BASE}/api/auth/google/callback?code=x&state=y`, { redirect: 'manual' });
+      check('a callback without the state cookie is refused',
+        (forged.headers.get('location') ?? '').includes('error=state'));
+    } else {
+      check('an unconfigured public instance refuses rather than opens',
+        (await rawStatus('/api/pages')) === 503);
+    }
+
+    const supplied = process.env.EVERNOTION_SESSION?.trim();
+    if (!supplied) {
+      console.log('\n  この環境はGoogleログインで保護されています。');
+      console.log('  ブラウザでログインし、ev_session クッキーの値を');
+      console.log('  EVERNOTION_SESSION=… に渡して再実行すると残りも検証します。');
       console.log(`\n${passed} passed, ${failures.length} failed`);
       process.exit(failures.length ? 1 : 0);
     }
 
-    const login = await fetch(`${BASE}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    });
-    const setCookie = login.headers.get('set-cookie') ?? '';
-    cookie = setCookie.split(';')[0];
-    check('the correct password is accepted', login.status === 200);
-    check('a session cookie is issued', cookie.startsWith('ev_session='));
-    check('the session cookie is HttpOnly', /httponly/i.test(setCookie));
-    check('a tampered session is rejected',
-      (await fetch(`${BASE}/api/pages`, { headers: { Cookie: 'ev_session=9999999999999.bad' } })).status === 401);
-    check('a valid session unlocks the app', (await rawStatusWithCookie('/api/pages')) === 200);
+    cookie = supplied.startsWith('ev_session=') ? supplied : `ev_session=${supplied}`;
+    check('the supplied session unlocks the app', (await rawStatusWithCookie('/api/pages')) === 200);
   } else {
-    console.log('\naccess control');
-    check('an unprotected instance says so plainly', health.protected === false);
+    check('a local instance says it is open', health.authMode === 'open');
+    check('notes are readable without a session', (await rawStatus('/api/pages')) === 200);
   }
 
   // --- first run ----------------------------------------------------------
@@ -136,11 +155,20 @@ async function main() {
     setup.phase);
 
   const tree = (await get('/api/pages')).tree;
-  check('an empty database is seeded with welcome notes',
-    tree.some((n) => n.title === 'はじめに'),
-    tree.map((n) => n.title).join(', '));
   const welcome = tree.find((n) => n.title === 'はじめに');
-  check('the welcome note has child notes', (welcome?.children.length ?? 0) >= 2);
+
+  // Only asserted for an account this run is watching from its very first
+  // moment. Against a deployment reached with a supplied session, the account
+  // may be months old and have deleted the welcome notes on day one — failing
+  // on that would be the test being wrong, not the app.
+  if (process.env.EVERNOTION_SESSION?.trim()) {
+    console.log('  --   welcome notes (既存アカウントのため確認しません)');
+  } else {
+    check('an empty database is seeded with welcome notes',
+      tree.some((n) => n.title === 'はじめに'),
+      tree.map((n) => n.title).join(', '));
+    check('the welcome note has child notes', (welcome?.children.length ?? 0) >= 2);
+  }
 
   if (welcome) {
     const detail = await get(`/api/pages/${welcome.id}`);
@@ -220,17 +248,26 @@ async function main() {
   // Deleting is the one destructive action in the app, and it takes a subtree
   // with it, so it has to be reversible.
   console.log('\ntrash');
+
+  // A marker unique to this run. The check below is the only one that asserts
+  // a search finds *nothing*, and the section ends by restoring the page — so
+  // a fixed word would still be live from the previous run and the assertion
+  // would fail the second time this script is pointed at the same instance.
+  // Katakana, so it exercises the same bigram path as the rest of the suite.
+  const KANA = 'アイウエオカキクケコサシスセソタチツテトナニヌネノ';
+  const marker = Array.from({ length: 8 }, () => KANA[Math.floor(Math.random() * KANA.length)]).join('');
+
   const { body: parent } = await post('/api/pages', { title: 'ゴミ箱テスト親' });
   const { body: child } = await post('/api/pages', {
     title: 'ゴミ箱テスト子', parentId: parent.page.id,
   });
   await patch(`/api/pages/${child.page.id}`, {
-    doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '合言葉ヲリーブ' }] }] },
+    doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `合言葉${marker}` }] }] },
   });
 
-  check('a note is searchable before deletion', (await searchHits('ヲリーブ')).length > 0);
+  check('a note is searchable before deletion', (await searchHits(marker)).length > 0);
   await post(`/api/pages/${parent.page.id}/archive`);
-  check('deleting a page hides its descendants too', (await searchHits('ヲリーブ')).length === 0);
+  check('deleting a page hides its descendants too', (await searchHits(marker)).length === 0);
   check('a deleted page leaves the sidebar tree',
     !(await get('/api/pages')).tree.some((n) => n.id === parent.page.id));
 
@@ -242,7 +279,7 @@ async function main() {
   await fetch(`${BASE}/api/pages/${parent.page.id}/archive`, {
     method: 'DELETE', headers: authHeaders(),
   });
-  check('restoring brings the content back', (await searchHits('ヲリーブ')).length > 0);
+  check('restoring brings the content back', (await searchHits(marker)).length > 0);
   check('restoring brings the page back to the tree',
     (await get('/api/pages')).tree.some((n) => n.id === parent.page.id));
 

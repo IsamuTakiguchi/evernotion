@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { SESSION_COOKIE, configuredPassword, verifySessionToken } from '@/lib/auth/session';
+import { SESSION_COOKIE, authMode, sessionUserId } from '@/lib/auth/session';
 
 /**
- * Optional password gate, run in front of every matched request.
+ * Sign-in gate, run in front of every matched request.
  *
  * Next 16 renamed `middleware` to `proxy`; the behaviour is identical and it
  * now defaults to the Node.js runtime.
@@ -14,27 +14,38 @@ import { SESSION_COOKIE, configuredPassword, verifySessionToken } from '@/lib/au
  *    authentication and authorization inside each Server Function rather than
  *    relying on Proxy alone."
  *
- * So the route handlers check the session themselves via requireSession();
- * a mistake in the matcher below costs a redirect, not the notes.
- *
- * Evernotion is designed to run on your own machine, where there is nobody to
- * authenticate. Deployed to a public URL that assumption breaks completely:
- * without this, anyone who learns the address can read every note, download
- * every PDF and upload files. Setting EVERNOTION_PASSWORD turns the gate on;
- * leaving it unset keeps local use frictionless.
+ * So this only reads the cookie — no database, because Proxy runs on every
+ * request including prefetches — and the real checks live in requireSession()
+ * and requireUserId(), which also resolve *which* user is asking. A mistake in
+ * the matcher below costs a redirect, not the notes.
  */
 export async function proxy(request: NextRequest) {
-  const password = configuredPassword();
-  if (!password) return NextResponse.next();
+  const mode = authMode();
 
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (await verifySessionToken(token, password)) return NextResponse.next();
+  // Nobody to authenticate against: this is somebody's own machine.
+  if (mode === 'open') return NextResponse.next();
 
   const { pathname, search } = request.nextUrl;
+  const isApi = pathname.startsWith('/api/');
+
+  // Reachable from the internet but with no sign-in configured. Serving the
+  // notes would be the worst possible reading of "not configured yet".
+  if (mode === 'locked') {
+    if (isApi) {
+      return NextResponse.json(
+        { error: 'この環境ではログインが設定されていません', code: 'AUTH_NOT_CONFIGURED' },
+        { status: 503 },
+      );
+    }
+    return NextResponse.next();
+  }
+
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (await sessionUserId(token)) return NextResponse.next();
 
   // An expired session on a fetch should surface as an error the client can
   // report, not as a login page delivered where JSON was expected.
-  if (pathname.startsWith('/api/')) {
+  if (isApi) {
     return NextResponse.json(
       { error: 'ログインが必要です', code: 'UNAUTHORIZED' },
       { status: 401 },
@@ -52,7 +63,7 @@ export const config = {
   matcher: [
     /*
      * Everything except:
-     *   login page and its endpoint (or there would be no way in)
+     *   login page and the sign-in endpoints (or there would be no way in)
      *   /api/health        (the platform health check runs unauthenticated)
      *   Next.js internals and the icons, which are not secrets
      */

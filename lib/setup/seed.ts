@@ -160,24 +160,32 @@ const japaneseDoc: JSONContent = {
   ],
 };
 
-/** True when the database has never held a page. */
-function isEmpty(): boolean {
-  const row = getDb().prepare('SELECT COUNT(*) AS n FROM pages').get() as { n: number };
+/** True when this owner has never had a page. */
+function isEmpty(ownerId: string): boolean {
+  const row = getDb()
+    .prepare('SELECT COUNT(*) AS n FROM pages WHERE owner_id = ?')
+    .get(ownerId) as { n: number };
   return row.n === 0;
 }
 
-export function seedWelcomeNotes(): boolean {
-  if (!isEmpty()) return false;
+/**
+ * Give one account its starting notes.
+ *
+ * Per account rather than per instance: the second person to sign in opens to
+ * an empty sidebar otherwise, with no hint that `/`, `[[` or `#` do anything.
+ */
+export function seedWelcomeNotes(ownerId: string): boolean {
+  if (!isEmpty(ownerId)) return false;
 
   // Children first, so the welcome note's links resolve on its very first save
   // rather than sitting unresolved until something touches them again.
-  const welcome = createPage({ title: 'はじめに', icon: '👋' });
-  const usage = createPage({ title: '使い方のヒント', icon: '💡', parentId: welcome.id });
-  const japanese = createPage({ title: '日本語検索について', icon: '🔍', parentId: welcome.id });
+  const welcome = createPage(ownerId, { title: 'はじめに', icon: '👋' });
+  const usage = createPage(ownerId, { title: '使い方のヒント', icon: '💡', parentId: welcome.id });
+  const japanese = createPage(ownerId, { title: '日本語検索について', icon: '🔍', parentId: welcome.id });
 
-  updatePage(usage.id, { doc: usageDoc });
-  updatePage(japanese.id, { doc: japaneseDoc });
-  updatePage(welcome.id, { doc: welcomeDoc(usage.id, japanese.id) });
+  updatePage(ownerId, usage.id, { doc: usageDoc });
+  updatePage(ownerId, japanese.id, { doc: japaneseDoc });
+  updatePage(ownerId, welcome.id, { doc: welcomeDoc(usage.id, japanese.id) });
 
   return true;
 }

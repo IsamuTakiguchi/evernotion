@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getSetting, setSetting } from '@/lib/db/queries';
 import { isAiEnabled } from '@/lib/ai/client';
-import { isProtected } from '@/lib/auth/session';
+import { authMode } from '@/lib/auth/session';
 import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const stored = getSetting('anthropic_api_key');
   return NextResponse.json({
@@ -18,13 +18,13 @@ export async function GET(req: Request) {
     hasStoredKey: !!stored,
     fromEnv: !!process.env.ANTHROPIC_API_KEY?.trim(),
     keyPreview: stored ? `${stored.slice(0, 8)}…${stored.slice(-4)}` : null,
-    protected: isProtected(),
+    authMode: authMode(),
   });
 }
 
 export async function POST(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const body = (await req.json().catch(() => ({}))) as { apiKey?: string };
   const key = (body.apiKey ?? '').trim();

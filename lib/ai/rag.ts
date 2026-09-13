@@ -31,7 +31,11 @@ type ChunkRow = {
  * scale (tens of thousands of chunks) this is tens of milliseconds — not worth
  * the operational cost of a native vector index.
  */
-export async function vectorSearch(query: string, limit = 30): Promise<{ row: ChunkRow; score: number }[]> {
+export async function vectorSearch(
+  ownerId: string,
+  query: string,
+  limit = 30,
+): Promise<{ row: ChunkRow; score: number }[]> {
   const rows = getDb()
     .prepare(
       `SELECT c.id, c.kind, c.page_id, c.attachment_id, c.pdf_page_no, c.text, c.embedding,
@@ -39,12 +43,13 @@ export async function vectorSearch(query: string, limit = 30): Promise<{ row: Ch
          FROM chunks c
          LEFT JOIN attachments a ON a.id = c.attachment_id
          LEFT JOIN pages p ON p.id = COALESCE(c.page_id, a.page_id) AND p.archived_at IS NULL
-        WHERE c.embedding IS NOT NULL
+        WHERE c.owner_id = ?
+          AND c.embedding IS NOT NULL
           -- Trashed notes must not resurface through meaning search or as a
           -- citation in chat, the same way they are hidden from keyword search.
           AND (COALESCE(c.page_id, a.page_id) IS NULL OR p.id IS NOT NULL)`,
     )
-    .all() as ChunkRow[];
+    .all(ownerId) as ChunkRow[];
 
   if (rows.length === 0) return [];
 
@@ -65,7 +70,7 @@ const RRF_K = 60;
  * results are weighted higher for short queries (someone looking up a term)
  * and vector results for long ones (someone asking a question).
  */
-export async function retrieve(query: string, limit = 8): Promise<Source[]> {
+export async function retrieve(ownerId: string, query: string, limit = 8): Promise<Source[]> {
   const isQuestion = query.length > 12 || /[?？か]$/.test(query.trim());
   const wFts = isQuestion ? 0.6 : 1.0;
   const wVec = isQuestion ? 1.0 : 0.6;
@@ -78,7 +83,7 @@ export async function retrieve(query: string, limit = 8): Promise<Source[]> {
     else scores.set(key, { score: contribution, source: make() });
   };
 
-  const keyword = search(query, { limit: 30 });
+  const keyword = search(ownerId, query, { limit: 30 });
   keyword.forEach((hit, i) => {
     const key = hit.kind === 'pdf' ? `pdf:${hit.attachmentId}:${hit.pdfPageNo}` : `page:${hit.pageId}`;
     add(key, wFts, i, () => ({
@@ -95,7 +100,7 @@ export async function retrieve(query: string, limit = 8): Promise<Source[]> {
   // A missing model must not break retrieval; keyword results still stand.
   let vector: Awaited<ReturnType<typeof vectorSearch>> = [];
   try {
-    vector = await vectorSearch(query, 30);
+    vector = await vectorSearch(ownerId, query, 30);
   } catch (err) {
     console.error('[rag] vector search unavailable:', (err as Error).message);
   }
@@ -126,15 +131,15 @@ export async function retrieve(query: string, limit = 8): Promise<Source[]> {
 }
 
 /** Notes closest to this one in embedding space, excluding itself. */
-export async function relatedPages(pageId: string, limit = 5) {
+export async function relatedPages(ownerId: string, pageId: string, limit = 5) {
   const db = getDb();
   const own = db
     .prepare(
       `SELECT c.embedding FROM chunks c
          JOIN pages p ON p.id = c.page_id AND p.archived_at IS NULL
-        WHERE c.page_id = ? AND c.embedding IS NOT NULL`,
+        WHERE c.page_id = ? AND c.owner_id = ? AND c.embedding IS NOT NULL`,
     )
-    .all(pageId) as { embedding: Buffer }[];
+    .all(pageId, ownerId) as { embedding: Buffer }[];
   if (own.length === 0) return [];
 
   // The page's centroid represents it better than any single chunk.
@@ -150,9 +155,10 @@ export async function relatedPages(pageId: string, limit = 5) {
     .prepare(
       `SELECT c.page_id, c.embedding, p.title, p.icon
          FROM chunks c JOIN pages p ON p.id = c.page_id
-        WHERE c.page_id <> ? AND c.embedding IS NOT NULL AND p.archived_at IS NULL`,
+        WHERE c.page_id <> ? AND c.owner_id = ?
+          AND c.embedding IS NOT NULL AND p.archived_at IS NULL`,
     )
-    .all(pageId) as { page_id: string; embedding: Buffer; title: string; icon: string | null }[];
+    .all(pageId, ownerId) as { page_id: string; embedding: Buffer; title: string; icon: string | null }[];
 
   const best = new Map<string, { id: string; title: string; icon: string | null; score: number }>();
   for (const row of others) {

@@ -18,8 +18,8 @@ export type GraphNode = {
 export type GraphLink = { source: string; target: string; unresolved: boolean };
 
 export async function GET(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const db = getDb();
 
@@ -28,17 +28,19 @@ export async function GET(req: Request) {
       `SELECT p.id, p.title, p.icon,
               (SELECT t.name FROM page_tags pt JOIN tags t ON t.id = pt.tag_id
                 WHERE pt.page_id = p.id ORDER BY t.name LIMIT 1) AS tag
-         FROM pages p WHERE p.archived_at IS NULL`,
+         FROM pages p WHERE p.owner_id = ? AND p.archived_at IS NULL`,
     )
-    .all() as { id: string; title: string; icon: string | null; tag: string | null }[];
+    .all(session.userId) as
+    { id: string; title: string; icon: string | null; tag: string | null }[];
 
   const edges = db
     .prepare(
       `SELECT l.source_page_id, l.target_page_id, l.target_title
          FROM links l JOIN pages p ON p.id = l.source_page_id
-        WHERE p.archived_at IS NULL`,
+        WHERE p.owner_id = ? AND p.archived_at IS NULL`,
     )
-    .all() as { source_page_id: string; target_page_id: string | null; target_title: string }[];
+    .all(session.userId) as
+    { source_page_id: string; target_page_id: string | null; target_title: string }[];
 
   const nodes = new Map<string, GraphNode>();
   for (const p of pages) {

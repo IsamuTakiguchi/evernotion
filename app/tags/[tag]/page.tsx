@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { getDb } from '@/lib/db/client';
+import { listPagesByTag } from '@/lib/db/queries';
+import { requireUserId } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,16 +9,7 @@ export default async function TagPage({ params }: { params: Promise<{ tag: strin
   const { tag } = await params;
   const name = decodeURIComponent(tag);
 
-  const pages = getDb()
-    .prepare(
-      `SELECT p.id, p.title, p.icon, substr(p.plain_text, 1, 160) AS excerpt
-         FROM pages p
-         JOIN page_tags pt ON pt.page_id = p.id
-         JOIN tags t ON t.id = pt.tag_id
-        WHERE t.name = ? AND p.archived_at IS NULL
-        ORDER BY p.updated_at DESC`,
-    )
-    .all(name) as { id: string; title: string; icon: string | null; excerpt: string }[];
+  const pages = listPagesByTag(await requireUserId(), name);
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-10 sm:px-10 sm:py-12">

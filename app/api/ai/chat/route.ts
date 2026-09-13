@@ -23,8 +23,8 @@ function buildContext(sources: Source[]): string {
 }
 
 export async function POST(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   if (!isAiEnabled()) return noKeyResponse();
 
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   const message = (body.message ?? '').trim();
   if (!message) return Response.json({ error: 'message is required' }, { status: 400 });
 
-  const sources = await retrieve(message, 8);
+  const sources = await retrieve(session.userId, message, 8);
   const client = getClient();
 
   const encoder = new TextEncoder();

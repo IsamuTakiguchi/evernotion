@@ -44,6 +44,14 @@ export async function ingestPdf(
   onProgress: IngestProgress,
 ): Promise<void> {
   const db = getDb();
+
+  // The owner comes from the attachment row rather than a parameter: ingest
+  // runs on a background queue that outlives the request that started it, and
+  // may be resumed after a restart with no session anywhere in sight.
+  const owner = db.prepare('SELECT owner_id FROM attachments WHERE id = ?').get(attachmentId) as
+    | { owner_id: string | null }
+    | undefined;
+  const ownerId = owner?.owner_id ?? null;
   const data = new Uint8Array(fs.readFileSync(storagePath));
 
   onProgress({ status: 'extracting', progress: 0 });
@@ -90,13 +98,18 @@ export async function ingestPdf(
            ON CONFLICT(attachment_id, page_no) DO UPDATE SET text = excluded.text, source = excluded.source`,
         ).run(attachmentId, page.pageNo, text, source);
 
-        indexSearchDoc(db, {
-          kind: 'pdf',
-          attachmentId,
-          pdfPageNo: page.pageNo,
-          title: `${filename} p.${page.pageNo}`,
-          body: text,
-        });
+        // An attachment with no owner predates accounts; its text stays out of
+        // the index rather than becoming visible to whoever searches next.
+        if (ownerId) {
+          indexSearchDoc(db, {
+            ownerId,
+            kind: 'pdf',
+            attachmentId,
+            pdfPageNo: page.pageNo,
+            title: `${filename} p.${page.pageNo}`,
+            body: text,
+          });
+        }
       });
       tx();
 

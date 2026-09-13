@@ -16,16 +16,16 @@ type Row = {
 };
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const row = getDb()
     .prepare(
       `SELECT id, filename, status, progress, page_count, ocr_pages, error
-         FROM attachments WHERE id = ?`,
+         FROM attachments WHERE id = ? AND owner_id = ?`,
     )
-    .get(id) as Row | undefined;
+    .get(id, session.userId) as Row | undefined;
 
   if (!row) return NextResponse.json({ error: 'not found' }, { status: 404 });
 

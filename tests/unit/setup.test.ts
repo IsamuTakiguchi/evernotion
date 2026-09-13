@@ -6,8 +6,10 @@ import path from 'node:path';
 
 import { isMountPoint, isWritable, isHostedDeployment, runPreflight } from '@/lib/setup/preflight';
 import {
-  RESOLVED_PASSWORD_ENV, configuredPassword, generatePassword, isGeneratedPassword,
+  RESOLVED_SECRET_ENV, authMode, createSessionToken, googleConfigured, randomToken,
+  sessionUserId, signPayload, verifyPayload,
 } from '@/lib/auth/session';
+import { allowedEmails, isAllowedEmail } from '@/lib/auth/users';
 
 /** Run a body with a specific set of environment variables, then restore. */
 function withEnv(vars: Record<string, string | undefined>, body: () => void) {
@@ -19,6 +21,23 @@ function withEnv(vars: Record<string, string | undefined>, body: () => void) {
   }
   try {
     body();
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+async function withEnvAsync(vars: Record<string, string | undefined>, body: () => Promise<void>) {
+  const saved = new Map<string, string | undefined>();
+  for (const [k, v] of Object.entries(vars)) {
+    saved.set(k, process.env[k]);
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    await body();
   } finally {
     for (const [k, v] of saved) {
       if (v === undefined) delete process.env[k];
@@ -66,38 +85,18 @@ test('isWritable: a directory that does not exist is not writable', () => {
 
 test('isHostedDeployment: any Railway id marks a deployment', () => {
   for (const marker of ['RAILWAY_PROJECT_ID', 'RAILWAY_SERVICE_ID', 'RAILWAY_ENVIRONMENT_ID']) {
-    withEnv(
-      {
-        RAILWAY_PROJECT_ID: undefined, RAILWAY_SERVICE_ID: undefined,
-        RAILWAY_ENVIRONMENT_ID: undefined, RENDER: undefined, FLY_APP_NAME: undefined,
-        KUBERNETES_SERVICE_HOST: undefined, DYNO: undefined, EVERNOTION_HOSTED: undefined,
-        [marker]: 'abc-123',
-      },
-      () => assert.equal(isHostedDeployment(), true, marker),
-    );
+    withEnv({ ...NO_HOSTING, [marker]: 'abc-123' }, () =>
+      assert.equal(isHostedDeployment(), true, marker));
   }
 });
 
 test('isHostedDeployment: a laptop is not a deployment', () => {
-  withEnv(
-    {
-      RAILWAY_PROJECT_ID: undefined, RAILWAY_SERVICE_ID: undefined,
-      RAILWAY_ENVIRONMENT_ID: undefined, RENDER: undefined, FLY_APP_NAME: undefined,
-      KUBERNETES_SERVICE_HOST: undefined, DYNO: undefined, EVERNOTION_HOSTED: undefined,
-    },
-    () => assert.equal(isHostedDeployment(), false),
-  );
+  withEnv(NO_HOSTING, () => assert.equal(isHostedDeployment(), false));
 });
 
 test('isHostedDeployment: an empty marker does not count', () => {
-  withEnv(
-    {
-      RAILWAY_PROJECT_ID: '   ', RAILWAY_SERVICE_ID: undefined,
-      RAILWAY_ENVIRONMENT_ID: undefined, RENDER: undefined, FLY_APP_NAME: undefined,
-      KUBERNETES_SERVICE_HOST: undefined, DYNO: undefined, EVERNOTION_HOSTED: undefined,
-    },
-    () => assert.equal(isHostedDeployment(), false),
-  );
+  withEnv({ ...NO_HOSTING, RAILWAY_PROJECT_ID: '   ' }, () =>
+    assert.equal(isHostedDeployment(), false));
 });
 
 test('runPreflight: a hosted deployment with no volume is warned about', () => {
@@ -134,56 +133,143 @@ test('runPreflight: a data directory that cannot be created reports the cause', 
 
 test('runPreflight: the same directory locally is not a problem', () => {
   const dir = path.join(tmpdir(), 'data');
+  withEnv({ ...NO_HOSTING, EVERNOTION_DATA_DIR: dir }, () =>
+    assert.deepEqual(runPreflight(), []));
+});
+
+// ------------------------------------------------------------ auth mode ---
+
+const NO_HOSTING = {
+  RAILWAY_PROJECT_ID: undefined, RAILWAY_SERVICE_ID: undefined,
+  RAILWAY_ENVIRONMENT_ID: undefined, RENDER: undefined, FLY_APP_NAME: undefined,
+  KUBERNETES_SERVICE_HOST: undefined, DYNO: undefined, EVERNOTION_HOSTED: undefined,
+};
+
+const GOOGLE = { GOOGLE_CLIENT_ID: 'id.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'shh' };
+
+test('authMode: Google credentials turn sign-in on', () => {
+  withEnv({ ...GOOGLE, EVERNOTION_HOSTED_RESOLVED: '1' }, () => {
+    assert.equal(googleConfigured(), true);
+    assert.equal(authMode(), 'google');
+  });
+});
+
+test('authMode: a laptop with no Google config is open', () => {
   withEnv(
-    {
-      EVERNOTION_DATA_DIR: dir, EVERNOTION_HOSTED: undefined,
-      RAILWAY_PROJECT_ID: undefined, RAILWAY_SERVICE_ID: undefined,
-      RAILWAY_ENVIRONMENT_ID: undefined, RENDER: undefined, FLY_APP_NAME: undefined,
-      KUBERNETES_SERVICE_HOST: undefined, DYNO: undefined,
-    },
-    () => assert.deepEqual(runPreflight(), []),
+    { GOOGLE_CLIENT_ID: undefined, GOOGLE_CLIENT_SECRET: undefined, EVERNOTION_HOSTED_RESOLVED: '0' },
+    () => assert.equal(authMode(), 'open'),
   );
 });
 
-// -------------------------------------------------------------- password ---
-
-test('generatePassword: shaped for copying out of a deploy log', () => {
-  const password = generatePassword();
-  assert.match(password, /^[a-zA-Z2-9]{6}(-[a-zA-Z2-9]{6}){3}$/);
-  // 0/O and 1/l/I are the characters people mistype when reading off a screen.
-  assert.equal(/[0O1lI]/.test(password), false, password);
+test('authMode: a public deployment with no Google config locks, it does not open', () => {
+  // The whole point. If this ever returns 'open', an unconfigured deployment
+  // serves every note to anyone who finds the URL.
+  withEnv(
+    { GOOGLE_CLIENT_ID: undefined, GOOGLE_CLIENT_SECRET: undefined, EVERNOTION_HOSTED_RESOLVED: '1' },
+    () => assert.equal(authMode(), 'locked'),
+  );
 });
 
-test('generatePassword: does not repeat itself', () => {
-  const seen = new Set(Array.from({ length: 50 }, () => generatePassword()));
-  assert.equal(seen.size, 50);
+test('authMode: half-configured Google is not configured', () => {
+  withEnv(
+    { GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: '  ', EVERNOTION_HOSTED_RESOLVED: '1' },
+    () => assert.equal(authMode(), 'locked'),
+  );
 });
 
-test('configuredPassword: an explicit password wins over a generated one', () => {
-  withEnv({ EVERNOTION_PASSWORD: 'chosen', [RESOLVED_PASSWORD_ENV]: 'generated' }, () => {
-    assert.equal(configuredPassword(), 'chosen');
-    assert.equal(isGeneratedPassword(), false);
+// ------------------------------------------------------------- allowlist ---
+
+test('isAllowedEmail: only listed addresses get in', () => {
+  withEnv({ EVERNOTION_ALLOWED_EMAILS: 'a@example.com, b@example.com' }, () => {
+    assert.equal(isAllowedEmail('a@example.com', true), true);
+    assert.equal(isAllowedEmail('b@example.com', true), true);
+    assert.equal(isAllowedEmail('c@example.com', true), false);
   });
 });
 
-test('configuredPassword: falls back to the generated one', () => {
-  withEnv({ EVERNOTION_PASSWORD: undefined, [RESOLVED_PASSWORD_ENV]: 'generated' }, () => {
-    assert.equal(configuredPassword(), 'generated');
-    assert.equal(isGeneratedPassword(), true);
+test('isAllowedEmail: case and spacing do not matter', () => {
+  withEnv({ EVERNOTION_ALLOWED_EMAILS: '  A@Example.COM\n b@example.com ' }, () => {
+    assert.deepEqual(allowedEmails(), ['a@example.com', 'b@example.com']);
+    assert.equal(isAllowedEmail('a@example.com', true), true);
+    assert.equal(isAllowedEmail('A@EXAMPLE.COM', true), true);
   });
 });
 
-test('configuredPassword: no password at all means an open instance', () => {
-  withEnv({ EVERNOTION_PASSWORD: undefined, [RESOLVED_PASSWORD_ENV]: undefined }, () => {
-    assert.equal(configuredPassword(), null);
-    assert.equal(isGeneratedPassword(), false);
+test('isAllowedEmail: a bare domain admits everyone at it', () => {
+  withEnv({ EVERNOTION_ALLOWED_EMAILS: '@example.com' }, () => {
+    assert.equal(isAllowedEmail('anyone@example.com', true), true);
+    assert.equal(isAllowedEmail('anyone@evil.com', true), false);
+    // Must not match a domain that merely ends with the listed one.
+    assert.equal(isAllowedEmail('anyone@notexample.com', true), false);
   });
 });
 
-test('configuredPassword: whitespace is not a password', () => {
-  withEnv({ EVERNOTION_PASSWORD: '   ', [RESOLVED_PASSWORD_ENV]: undefined }, () => {
-    assert.equal(configuredPassword(), null);
+test('isAllowedEmail: an unverified address is never allowed', () => {
+  // Otherwise the gate is "put the right string in your Google profile".
+  withEnv({ EVERNOTION_ALLOWED_EMAILS: 'a@example.com' }, () => {
+    assert.equal(isAllowedEmail('a@example.com', false), false);
   });
+});
+
+test('isAllowedEmail: an empty allowlist admits nobody', () => {
+  withEnv({ EVERNOTION_ALLOWED_EMAILS: undefined }, () => {
+    assert.equal(isAllowedEmail('a@example.com', true), false);
+  });
+});
+
+// --------------------------------------------------------------- session ---
+
+test('a session token names its user and survives a round trip', async () => {
+  await withEnvAsync({ EVERNOTION_SECRET: 'test-secret' }, async () => {
+    const token = await createSessionToken('u_abc123');
+    assert.equal(await sessionUserId(token), 'u_abc123');
+  });
+});
+
+test('a session token cannot be re-pointed at another user', async () => {
+  await withEnvAsync({ EVERNOTION_SECRET: 'test-secret' }, async () => {
+    const token = await createSessionToken('u_abc123');
+    const forged = token.replace('u_abc123', 'u_victim');
+    assert.equal(await sessionUserId(forged), null);
+  });
+});
+
+test('a session token signed with another secret is rejected', async () => {
+  let token = '';
+  await withEnvAsync({ EVERNOTION_SECRET: 'secret-one' }, async () => {
+    token = await createSessionToken('u_abc123');
+  });
+  await withEnvAsync({ EVERNOTION_SECRET: 'secret-two' }, async () => {
+    assert.equal(await sessionUserId(token), null);
+  });
+});
+
+test('an expired session is rejected', async () => {
+  await withEnvAsync({ EVERNOTION_SECRET: 'test-secret' }, async () => {
+    const expired = await signPayload(`u_abc123:${Date.now() - 1000}`);
+    assert.equal(await sessionUserId(expired), null);
+  });
+});
+
+test('garbage is rejected rather than throwing', async () => {
+  await withEnvAsync({ EVERNOTION_SECRET: 'test-secret' }, async () => {
+    for (const bad of [undefined, '', '.', 'nope', 'a.b.c', 'u_x:123.deadbeef']) {
+      assert.equal(await sessionUserId(bad as string | undefined), null, String(bad));
+    }
+  });
+});
+
+test('signPayload/verifyPayload round-trips the OAuth state', async () => {
+  await withEnvAsync({ EVERNOTION_SECRET: 'test-secret' }, async () => {
+    const payload = JSON.stringify({ state: 'abc', verifier: 'xyz', next: '/p/1' });
+    assert.equal(await verifyPayload(await signPayload(payload)), payload);
+    assert.equal(await verifyPayload('tampered.0000'), null);
+  });
+});
+
+test('randomToken does not repeat itself', () => {
+  const seen = new Set(Array.from({ length: 100 }, () => randomToken(16)));
+  assert.equal(seen.size, 100);
 });
 
 // ----------------------------------------------------------- route guard ---
@@ -196,13 +282,17 @@ test('configuredPassword: whitespace is not a password', () => {
  * second layer exists. It is a source scan rather than an HTTP test on purpose:
  * it fails the moment someone adds an unguarded route, without a server.
  */
-const UNGUARDED_BY_DESIGN = new Set([
+const UNGUARDED_BY_DESIGN = [
   // The platform health check runs before anyone has logged in.
   'app/api/health/route.ts',
-  // Gating the way in would leave no way in.
-  'app/api/auth/login/route.ts',
-  'app/api/auth/logout/route.ts',
-]);
+  // Gating the way in would leave no way in. This is a prefix, and it is the
+  // same set proxy.ts excludes — the last test in this file keeps the two in
+  // step, so widening one without the other is caught.
+  'app/api/auth/',
+];
+
+const isOpenByDesign = (file: string) =>
+  UNGUARDED_BY_DESIGN.some((entry) => file === entry || file.startsWith(entry));
 
 function routeFiles(dir: string, found: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -218,7 +308,7 @@ test('every API route verifies the session, or is listed as deliberately open', 
   assert.ok(routes.length >= 20, `expected to find the API routes, found ${routes.length}`);
 
   const unguarded = routes.filter((file) => {
-    if (UNGUARDED_BY_DESIGN.has(file)) return false;
+    if (isOpenByDesign(file)) return false;
     return !fs.readFileSync(file, 'utf8').includes('requireSession');
   });
   assert.deepEqual(unguarded, [], `these routes do not check the session: ${unguarded.join(', ')}`);
@@ -228,7 +318,7 @@ test('every exported handler in a guarded route checks the session', () => {
   const offenders: string[] = [];
 
   for (const file of routeFiles('app/api')) {
-    if (UNGUARDED_BY_DESIGN.has(file)) continue;
+    if (isOpenByDesign(file)) continue;
     const source = fs.readFileSync(file, 'utf8');
     // One requireSession() call is needed per exported HTTP method: importing
     // it and using it in GET only would leave POST wide open.

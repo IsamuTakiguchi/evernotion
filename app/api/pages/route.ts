@@ -6,22 +6,22 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
-  return NextResponse.json({ tree: listPageTree() });
+  return NextResponse.json({ tree: listPageTree(session.userId) });
 }
 
 export async function POST(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const body = (await req.json().catch(() => ({}))) as {
     title?: string;
     parentId?: string | null;
     icon?: string | null;
   };
-  const page = createPage({
+  const page = createPage(session.userId, {
     title: body.title ?? '',
     parentId: body.parentId ?? null,
     icon: body.icon ?? null,

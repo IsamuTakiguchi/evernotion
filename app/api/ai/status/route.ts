@@ -9,11 +9,13 @@ export const dynamic = 'force-dynamic';
 
 /** Lets the UI decide between the live AI panel and the "set a key" state. */
 export async function GET(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const db = getDb();
-  const chunks = db.prepare('SELECT COUNT(*) AS n FROM chunks WHERE embedding IS NOT NULL').get() as { n: number };
+  const chunks = db
+    .prepare('SELECT COUNT(*) AS n FROM chunks WHERE owner_id = ? AND embedding IS NOT NULL')
+    .get(session.userId) as { n: number };
   return NextResponse.json({
     aiEnabled: isAiEnabled(),
     embeddedChunks: chunks.n,

@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic';
 
 /** Lets the UI show first-run progress instead of failing quietly. */
 export async function GET(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   return NextResponse.json(setupState());
 }

@@ -78,6 +78,7 @@ type ExistingChunk = { id: number; hash: string };
  * hash. Editing one paragraph of a long note re-embeds one chunk, not all of them.
  */
 async function syncChunks(
+  ownerId: string,
   where: { kind: 'page'; pageId: string } | { kind: 'pdf'; attachmentId: string },
   pieces: { text: string; ord: number; pdfPageNo?: number }[],
 ) {
@@ -112,12 +113,13 @@ async function syncChunks(
       db.prepare(`DELETE FROM chunks WHERE id IN (${stale.map(() => '?').join(',')})`).run(...stale);
     }
     const insert = db.prepare(
-      `INSERT INTO chunks (kind, page_id, attachment_id, pdf_page_no, ord, text, hash, embedding)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO chunks (kind, owner_id, page_id, attachment_id, pdf_page_no, ord, text, hash, embedding)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     toEmbed.forEach((t, i) => {
       insert.run(
         where.kind,
+        ownerId,
         where.kind === 'page' ? where.pageId : null,
         where.kind === 'pdf' ? where.attachmentId : null,
         t.piece.pdfPageNo ?? null,
@@ -131,19 +133,25 @@ async function syncChunks(
   tx();
 }
 
+/**
+ * The owner is read from the row rather than passed in: this runs on a
+ * background queue with no session, and the page already records whose it is.
+ * A row with no owner is skipped rather than indexed into everyone's search —
+ * that only happens before the first account claims the pre-accounts data.
+ */
 export async function indexPage(pageId: string) {
   const db = getDb();
-  const row = db.prepare('SELECT title, plain_text FROM pages WHERE id = ?').get(pageId) as
-    | { title: string; plain_text: string }
-    | undefined;
-  if (!row) return;
+  const row = db
+    .prepare('SELECT owner_id, title, plain_text FROM pages WHERE id = ?')
+    .get(pageId) as { owner_id: string | null; title: string; plain_text: string } | undefined;
+  if (!row?.owner_id) return;
 
   // Prefixing each chunk with the title keeps short chunks self-describing.
   const pieces = chunkText(row.plain_text).map((c) => ({
     ord: c.ord,
     text: row.title ? `${row.title}\n${c.text}` : c.text,
   }));
-  await syncChunks({ kind: 'page', pageId }, pieces);
+  await syncChunks(row.owner_id, { kind: 'page', pageId }, pieces);
 }
 
 export async function indexAttachment(attachmentId: string) {
@@ -151,10 +159,10 @@ export async function indexAttachment(attachmentId: string) {
   const pages = db
     .prepare('SELECT page_no, text FROM pdf_pages WHERE attachment_id = ? ORDER BY page_no')
     .all(attachmentId) as { page_no: number; text: string }[];
-  const meta = db.prepare('SELECT filename FROM attachments WHERE id = ?').get(attachmentId) as
-    | { filename: string }
-    | undefined;
-  if (!meta) return;
+  const meta = db
+    .prepare('SELECT owner_id, filename FROM attachments WHERE id = ?')
+    .get(attachmentId) as { owner_id: string | null; filename: string } | undefined;
+  if (!meta?.owner_id) return;
 
   const pieces: { text: string; ord: number; pdfPageNo: number }[] = [];
   let ord = 0;
@@ -167,15 +175,25 @@ export async function indexAttachment(attachmentId: string) {
       });
     }
   }
-  await syncChunks({ kind: 'pdf', attachmentId }, pieces);
+  await syncChunks(meta.owner_id, { kind: 'pdf', attachmentId }, pieces);
 }
 
-/** Force a full re-index of everything, for the Settings screen. */
-export async function reindexAll() {
+/**
+ * Force a re-index of one owner's notes and PDFs, for the Settings screen.
+ *
+ * Scoped rather than global: this is a button in the UI, and re-embedding is
+ * minutes of CPU. One account pressing it must not throw away and recompute
+ * everybody else's vectors.
+ */
+export async function reindexAll(ownerId: string) {
   const db = getDb();
-  const pages = db.prepare('SELECT id FROM pages').all() as { id: string }[];
-  const atts = db.prepare(`SELECT id FROM attachments WHERE status = 'ready'`).all() as { id: string }[];
-  db.prepare('DELETE FROM chunks').run();
+  const pages = db.prepare('SELECT id FROM pages WHERE owner_id = ?').all(ownerId) as {
+    id: string;
+  }[];
+  const atts = db
+    .prepare(`SELECT id FROM attachments WHERE owner_id = ? AND status = 'ready'`)
+    .all(ownerId) as { id: string }[];
+  db.prepare('DELETE FROM chunks WHERE owner_id = ?').run(ownerId);
   for (const p of pages) await indexPage(p.id);
   for (const a of atts) await indexAttachment(a.id);
   return { pages: pages.length, attachments: atts.length };

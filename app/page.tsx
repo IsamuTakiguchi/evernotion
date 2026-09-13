@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { listPageTree } from '@/lib/db/queries';
+import { requireUserId } from '@/lib/auth/guard';
 import { Logo } from '@/components/layout/Logo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
-  const tree = listPageTree();
+  const tree = listPageTree(await requireUserId());
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-12 sm:px-8 sm:py-20">

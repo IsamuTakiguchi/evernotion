@@ -1,9 +1,8 @@
 import { getDb } from '../db/client';
 import { getSetting, setSetting } from '../db/queries';
 import { resumePendingJobs } from '../pdf/queue';
-import {
-  GENERATED_PASSWORD_SETTING, RESOLVED_PASSWORD_ENV, generatePassword,
-} from '../auth/session';
+import { RESOLVED_SECRET_ENV, SECRET_SETTING, authMode, randomToken } from '../auth/session';
+import { localUser } from '../auth/users';
 import { seedWelcomeNotes } from './seed';
 import { runPreflight, isHostedDeployment, type PreflightIssue } from './preflight';
 import { ensureModels, hasTessdata } from './models.mjs';
@@ -74,8 +73,15 @@ export function bootstrap(): void {
     // Opening the database applies migrations.
     getDb();
 
-    resolvePassword();
-    s.seeded = seedWelcomeNotes();
+    // Published before anything can ask for it: register() is documented to
+    // finish before the server accepts a request.
+    process.env.EVERNOTION_HOSTED_RESOLVED = isHostedDeployment() ? '1' : '0';
+    resolveSecret();
+
+    // With accounts, the starting notes belong to an account and are created on
+    // first sign-in. Running locally there is only ever the one implicit user,
+    // so it still happens here.
+    s.seeded = authMode() === 'open' ? seedWelcomeNotes(localUser().id) : false;
 
     // Any ingest interrupted by a restart is stranded in a non-terminal state;
     // without this its file would sit at "解析中" forever.
@@ -126,48 +132,23 @@ export function bootstrap(): void {
 
 
 /**
- * Settle on a password for this instance and publish it for the rest of the
- * process.
+ * Settle on the key that signs session cookies, and publish it for the process.
  *
- * A note app on a public URL with no login is not a usable default: anyone who
- * learns the address can read everything and upload files. Rather than demand
- * that an environment variable be remembered, a hosted instance that has none
- * generates one, keeps it on the volume, and prints it once so it can be
- * retrieved from the deploy log.
- *
- * Run locally, nothing happens: there is nobody to authenticate against, and a
- * login prompt on your own machine is friction for no gain.
+ * Kept on the volume rather than regenerated per boot, or every restart would
+ * sign everybody out. EVERNOTION_SECRET overrides it, which is what you want
+ * when running more than one instance — though this app cannot, because its
+ * volume allows only one.
  */
-function resolvePassword(): void {
-  if (process.env.EVERNOTION_PASSWORD?.trim()) return;
+function resolveSecret(): void {
+  if (process.env.EVERNOTION_SECRET?.trim()) return;
 
-  const stored = getSetting(GENERATED_PASSWORD_SETTING)?.trim();
+  const stored = getSetting(SECRET_SETTING)?.trim();
   if (stored) {
-    process.env[RESOLVED_PASSWORD_ENV] = stored;
+    process.env[RESOLVED_SECRET_ENV] = stored;
     return;
   }
 
-  if (!isHostedDeployment()) return;
-
-  const password = generatePassword();
-  setSetting(GENERATED_PASSWORD_SETTING, password);
-  process.env[RESOLVED_PASSWORD_ENV] = password;
-
-  // The only time this is ever printed. It is stored from here on, so a
-  // restart reuses it rather than generating a new one.
-  console.log(
-    [
-      '',
-      '='.repeat(64),
-      '  Evernotion: no EVERNOTION_PASSWORD was set, so one was generated.',
-      '',
-      `      ${password}`,
-      '',
-      '  Log in with it, then keep it somewhere safe — this is the only time',
-      '  it is printed. To choose your own instead, set EVERNOTION_PASSWORD',
-      '  as an environment variable; it takes precedence from then on.',
-      '='.repeat(64),
-      '',
-    ].join('\n'),
-  );
+  const generated = randomToken(32);
+  setSetting(SECRET_SETTING, generated);
+  process.env[RESOLVED_SECRET_ENV] = generated;
 }

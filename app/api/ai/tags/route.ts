@@ -1,27 +1,28 @@
 import { NextResponse } from 'next/server';
 import { getClient, isAiEnabled, MODELS, noKeyResponse } from '@/lib/ai/client';
-import { getDb } from '@/lib/db/client';
-import { getPage } from '@/lib/db/queries';
+import { getPage, listTags } from '@/lib/db/queries';
 import { requireSession } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   if (!isAiEnabled()) return noKeyResponse();
 
   const { pageId } = (await req.json().catch(() => ({}))) as { pageId?: string };
-  const page = pageId ? getPage(pageId) : undefined;
+  const page = pageId ? getPage(session.userId, pageId) : undefined;
   if (!page) return NextResponse.json({ error: 'page not found' }, { status: 404 });
 
   // Offer the existing vocabulary so the model reuses tags instead of
   // inventing a near-duplicate of one the user already has.
-  const vocabulary = (
-    getDb().prepare('SELECT name FROM tags ORDER BY name LIMIT 200').all() as { name: string }[]
-  ).map((t) => t.name);
+  //
+  // This user's tags only. Reading `tags` directly would be shorter and would
+  // put every other account's tag names into the prompt — a list of what other
+  // people are working on, sent to a third party.
+  const vocabulary = listTags(session.userId).slice(0, 200).map((t) => t.name);
 
   const client = getClient();
   const response = await client.messages.create({

@@ -15,15 +15,15 @@ export const dynamic = 'force-dynamic';
  * Runs entirely locally, so it needs no API key.
  */
 export async function GET(req: Request) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const url = new URL(req.url);
   const q = (url.searchParams.get('q') ?? '').trim();
   if (!q) return NextResponse.json({ hits: [] });
 
   try {
-    const results = await vectorSearch(q, 24);
+    const results = await vectorSearch(session.userId, q, 24);
 
     // Several chunks of one note can match; keep each note once, at its best score.
     const best = new Map<string, { score: number; hit: Record<string, unknown> }>();

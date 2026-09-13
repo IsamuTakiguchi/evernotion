@@ -1,81 +1,68 @@
 /**
- * Session tokens for the optional password gate.
+ * Session tokens.
  *
  * Uses Web Crypto only, so the same code runs in Proxy and in route handlers
- * without caring which runtime it landed on. No dependency, no session store:
- * the token carries its own expiry and is verified by signature.
+ * without caring which runtime it landed on. No session store: the token
+ * carries the user id and its own expiry, and is verified by signature.
  */
 
 export const SESSION_COOKIE = 'ev_session';
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
-/**
- * The password itself is the signing key. That is deliberate: changing the
- * password then invalidates every existing session, which is the behaviour
- * someone changing a password actually wants.
- */
-function secretFor(password: string): string {
-  return process.env.EVERNOTION_SECRET?.trim() || password;
-}
-
-/** Key under which a self-provisioned password is stored. */
-export const GENERATED_PASSWORD_SETTING = 'generated_password';
+/** Key under which a self-provisioned signing secret is stored. */
+export const SECRET_SETTING = 'session_secret';
 
 /**
- * Where a self-provisioned password is published for the rest of the process.
+ * Where the signing secret is published for the rest of the process.
  *
- * Startup resolves the password once (reading or creating the stored one) and
- * puts it here, so this module never has to touch the database. That keeps it
- * usable from any runtime and avoids a database read on every request.
+ * Startup resolves it once (reading or creating the stored one) and puts it
+ * here, so this module never has to touch the database. That keeps it usable
+ * from any runtime and avoids a database read on every request.
  *
  * Safe by construction: instrumentation's register() is documented to complete
  * before the server accepts requests, so this is populated before anything can
  * ask for it.
  */
-export const RESOLVED_PASSWORD_ENV = 'EVERNOTION_RESOLVED_PASSWORD';
+export const RESOLVED_SECRET_ENV = 'EVERNOTION_RESOLVED_SECRET';
 
 /**
- * The password guarding this instance, or null when it is deliberately open.
+ * How this instance decides who may use it.
  *
- * Resolution order:
- *   1. EVERNOTION_PASSWORD — an explicit choice always wins
- *   2. a password this instance generated for itself on first boot
- *   3. null, which means no login at all
- *
- * Step 2 is what lets a public deployment be protected without anyone having to
- * remember to set a variable.
+ *   google — Google sign-in, restricted to the allowlist
+ *   open   — no login at all; nobody to authenticate against
+ *   locked — reachable from the internet but not configured, so nothing is
+ *            served. Failing closed is the whole point: the alternative is an
+ *            instance that quietly hands every note to whoever finds the URL.
  */
-export function configuredPassword(): string | null {
-  const fromEnv = process.env.EVERNOTION_PASSWORD?.trim();
-  if (fromEnv) return fromEnv;
+export type AuthMode = 'google' | 'open' | 'locked';
 
-  const resolved = process.env[RESOLVED_PASSWORD_ENV]?.trim();
-  return resolved ? resolved : null;
+export function googleConfigured(): boolean {
+  return Boolean(
+    process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim(),
+  );
 }
 
-export function isProtected(): boolean {
-  return configuredPassword() !== null;
+export function authMode(): AuthMode {
+  if (googleConfigured()) return 'google';
+  // Imported lazily: preflight pulls in node:fs, which Proxy must not load on
+  // a runtime that has no filesystem.
+  return process.env.EVERNOTION_HOSTED_RESOLVED === '1' ? 'locked' : 'open';
 }
 
-/** Whether the active password was generated rather than configured. */
-export function isGeneratedPassword(): boolean {
-  return !process.env.EVERNOTION_PASSWORD?.trim() && configuredPassword() !== null;
+function secret(): string {
+  const configured = process.env.EVERNOTION_SECRET?.trim();
+  if (configured) return configured;
+  const resolved = process.env[RESOLVED_SECRET_ENV]?.trim();
+  if (resolved) return resolved;
+  // Only reachable before startup has run, which cannot happen for a request.
+  throw new Error('session secret is not resolved yet');
 }
 
-/**
- * A password that is easy to copy out of a deploy log and still strong.
- *
- * Avoids the characters that get misread when someone retypes from a log
- * (0/O, 1/l/I) — a password nobody can transcribe just gets replaced by a
- * weaker one.
- */
-export function generatePassword(): string {
-  const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = new Uint32Array(24);
-  crypto.getRandomValues(bytes);
-  const chars = [...bytes].map((n) => alphabet[n % alphabet.length]);
-  // Grouped, so it survives being read off a screen.
-  return [0, 6, 12, 18].map((i) => chars.slice(i, i + 6).join('')).join('-');
+/** A high-entropy value for signing, or for an id. */
+export function randomToken(bytes = 32): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return [...buf].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 async function hmac(key: string, message: string): Promise<string> {
@@ -99,31 +86,55 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function createSessionToken(password: string): Promise<string> {
+/**
+ * Sign a short-lived value that is handed to a third party and comes back.
+ *
+ * Used for the OAuth state and the PKCE verifier: both have to survive a round
+ * trip through Google, and neither is worth a server-side store.
+ */
+export async function signPayload(payload: string): Promise<string> {
+  return `${payload}.${await hmac(secret(), payload)}`;
+}
+
+export async function verifyPayload(signed: string | undefined): Promise<string | null> {
+  if (!signed) return null;
+  const separator = signed.lastIndexOf('.');
+  if (separator <= 0) return null;
+  const payload = signed.slice(0, separator);
+  const signature = signed.slice(separator + 1);
+  return safeEqual(signature, await hmac(secret(), payload)) ? payload : null;
+}
+
+export async function createSessionToken(userId: string): Promise<string> {
   const expiresAt = Date.now() + SESSION_MAX_AGE_SECONDS * 1000;
-  const payload = String(expiresAt);
-  return `${payload}.${await hmac(secretFor(password), payload)}`;
+  // The user id is part of what is signed, so a session cannot be re-pointed
+  // at somebody else's account by editing the cookie.
+  return signPayload(`${userId}:${expiresAt}`);
 }
 
-export async function verifySessionToken(
-  token: string | undefined,
-  password: string,
-): Promise<boolean> {
-  if (!token) return false;
-  const separator = token.lastIndexOf('.');
-  if (separator <= 0) return false;
+/** The user this token belongs to, or null if it is absent, forged or expired. */
+export async function sessionUserId(token: string | undefined): Promise<string | null> {
+  const payload = await verifyPayload(token);
+  if (!payload) return null;
 
-  const payload = token.slice(0, separator);
-  const signature = token.slice(separator + 1);
+  const split = payload.lastIndexOf(':');
+  if (split <= 0) return null;
 
-  const expiresAt = Number(payload);
-  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
+  const expiresAt = Number(payload.slice(split + 1));
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null;
 
-  return safeEqual(signature, await hmac(secretFor(password), payload));
+  return payload.slice(0, split);
 }
 
-/** Compare a submitted password without leaking its length through timing. */
-export async function passwordMatches(submitted: string, expected: string): Promise<boolean> {
-  const [a, b] = await Promise.all([hmac(expected, submitted), hmac(expected, expected)]);
-  return safeEqual(a, b);
+/** Read one cookie out of a plain Request. */
+export function readCookie(req: Request, name: string): string | undefined {
+  return (req.headers.get('cookie') ?? '')
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+}
+
+export function sessionCookie(req: Request): string | undefined {
+  return readCookie(req, SESSION_COOKIE);
 }

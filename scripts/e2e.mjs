@@ -7,8 +7,9 @@
  *   npx next start -p 3210 &
  *   node scripts/e2e.mjs http://127.0.0.1:3210
  *
- * Against a password-protected deployment, pass the password so it can log in:
- *   EVERNOTION_PASSWORD=… node scripts/e2e.mjs https://your-app.up.railway.app
+ * Against a deployment with Google sign-in, this script cannot log in by
+ * itself. Sign in with a browser, copy the ev_session cookie and pass it:
+ *   EVERNOTION_SESSION=… node scripts/e2e.mjs https://your-app.up.railway.app
  * It writes notes, so point it at a scratch deployment rather than real ones.
  *
  * Run it against a production server: `next dev`'s HMR client aborts hydration
@@ -50,9 +51,9 @@ const exe = chromiumExecutable();
 const browser = await chromium.launch(exe ? { executablePath: exe } : {});
 
 /**
- * Session cookie, when the target is password-protected. It has to reach both
- * the browser and this script's own fetch calls, or half the suite gets login
- * redirects where it expected JSON.
+ * Session cookie, when the target is gated. It has to reach both the browser
+ * and this script's own fetch calls, or half the suite gets login redirects
+ * where it expected JSON.
  */
 let cookie = null;
 const authHeaders = (extra = {}) => (cookie ? { ...extra, Cookie: cookie } : extra);
@@ -60,25 +61,24 @@ const apiFetch = (path, init = {}) =>
   fetch(BASE + path, { ...init, headers: authHeaders(init.headers ?? {}) });
 
 const health = await (await fetch(`${BASE}/api/health`)).json();
-if (health.protected) {
-  const password = process.env.EVERNOTION_PASSWORD;
-  if (!password) {
-    console.log('この環境はパスワード保護されています。');
-    console.log('EVERNOTION_PASSWORD=… を付けて再実行してください。');
+if (health.authMode && health.authMode !== 'open') {
+  const supplied = process.env.EVERNOTION_SESSION?.trim();
+  if (!supplied) {
+    console.log('この環境はGoogleログインで保護されています。');
+    console.log('ブラウザでログインし、ev_session クッキーの値を');
+    console.log('EVERNOTION_SESSION=… に渡して再実行してください。');
     await browser.close();
     process.exit(1);
   }
-  const login = await fetch(`${BASE}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  });
-  if (!login.ok) {
-    console.log(`ログインに失敗しました (${login.status})`);
+  cookie = supplied.startsWith('ev_session=') ? supplied : `ev_session=${supplied}`;
+
+  // Fail here rather than 27 confusing assertions later.
+  const probe = await fetch(`${BASE}/api/pages`, { headers: { Cookie: cookie } });
+  if (!probe.ok) {
+    console.log(`渡されたセッションが無効です (${probe.status})。ログインし直してください。`);
     await browser.close();
     process.exit(1);
   }
-  cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
 }
 
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });

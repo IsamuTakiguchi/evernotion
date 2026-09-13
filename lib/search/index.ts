@@ -3,9 +3,10 @@ import { getDb } from '../db/client';
 import { ngramText } from './ngram';
 import { normalize } from './normalize';
 
-export type IndexInput =
+export type IndexInput = { ownerId: string } & (
   | { kind: 'page'; pageId: string; title: string; body: string }
-  | { kind: 'pdf'; attachmentId: string; pdfPageNo: number; title: string; body: string };
+  | { kind: 'pdf'; attachmentId: string; pdfPageNo: number; title: string; body: string }
+);
 
 /**
  * The one and only writer of the search index.
@@ -28,16 +29,19 @@ export function indexSearchDoc(db: DB, input: IndexInput): void {
   let rowid: number;
   if (existing) {
     rowid = existing.rowid;
-    db.prepare(`UPDATE search_docs SET title = ?, body = ?, updated_at = datetime('now') WHERE rowid = ?`)
-      .run(title, body, rowid);
+    db.prepare(
+      `UPDATE search_docs SET title = ?, body = ?, owner_id = ?, updated_at = datetime('now')
+        WHERE rowid = ?`,
+    ).run(title, body, input.ownerId, rowid);
   } else {
     const info = db
       .prepare(
-        `INSERT INTO search_docs (kind, page_id, attachment_id, pdf_page_no, title, body)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO search_docs (kind, owner_id, page_id, attachment_id, pdf_page_no, title, body)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.kind,
+        input.ownerId,
         input.kind === 'page' ? input.pageId : null,
         input.kind === 'pdf' ? input.attachmentId : null,
         input.kind === 'pdf' ? input.pdfPageNo : null,
@@ -72,27 +76,42 @@ export function optimizeIndex(): void {
   getDb().prepare(`INSERT INTO fts_docs(fts_docs) VALUES ('optimize')`).run();
 }
 
-/** Rebuild the whole index from pages and pdf_pages. */
-export function rebuildIndex(): { pages: number; pdfPages: number } {
+/**
+ * Rebuild one owner's slice of the index from their pages and PDF pages.
+ *
+ * Per owner rather than global: this is reachable from the UI, and a global
+ * rebuild triggered by one account would drop and re-derive everybody's rows —
+ * fine if it completes, a shared outage if it does not.
+ */
+export function rebuildIndex(ownerId: string): { pages: number; pdfPages: number } {
   const db = getDb();
-  const pages = db.prepare('SELECT id, title, plain_text FROM pages').all() as {
-    id: string; title: string; plain_text: string;
-  }[];
+  const pages = db
+    .prepare('SELECT id, title, plain_text FROM pages WHERE owner_id = ?')
+    .all(ownerId) as { id: string; title: string; plain_text: string }[];
   const pdfPages = db
     .prepare(
       `SELECT pp.attachment_id, pp.page_no, pp.text, a.filename
-         FROM pdf_pages pp JOIN attachments a ON a.id = pp.attachment_id`,
+         FROM pdf_pages pp JOIN attachments a ON a.id = pp.attachment_id
+        WHERE a.owner_id = ?`,
     )
-    .all() as { attachment_id: string; page_no: number; text: string; filename: string }[];
+    .all(ownerId) as { attachment_id: string; page_no: number; text: string; filename: string }[];
 
   const tx = db.transaction(() => {
-    db.prepare('DELETE FROM fts_docs').run();
-    db.prepare('DELETE FROM search_docs').run();
+    for (const row of db
+      .prepare('SELECT rowid FROM search_docs WHERE owner_id = ?')
+      .all(ownerId) as { rowid: number }[]) {
+      db.prepare('DELETE FROM fts_docs WHERE rowid = ?').run(row.rowid);
+    }
+    db.prepare('DELETE FROM search_docs WHERE owner_id = ?').run(ownerId);
+
     for (const p of pages) {
-      indexSearchDoc(db, { kind: 'page', pageId: p.id, title: p.title, body: p.plain_text });
+      indexSearchDoc(db, {
+        ownerId, kind: 'page', pageId: p.id, title: p.title, body: p.plain_text,
+      });
     }
     for (const pp of pdfPages) {
       indexSearchDoc(db, {
+        ownerId,
         kind: 'pdf',
         attachmentId: pp.attachment_id,
         pdfPageNo: pp.page_no,

@@ -39,7 +39,7 @@ type Row = {
   rank: number;
 };
 
-export function search(raw: string, opts: SearchOptions = {}): SearchHit[] {
+export function search(ownerId: string, raw: string, opts: SearchOptions = {}): SearchHit[] {
   const query = raw.trim();
   if (!query) return [];
 
@@ -50,8 +50,8 @@ export function search(raw: string, opts: SearchOptions = {}): SearchHit[] {
   const tag = opts.tag ?? parsed.tag;
 
   const rows = parsed.match
-    ? matchRows(parsed.match, { kind, tag, limit, offset })
-    : likeRows(parsed.rest, { kind, tag, limit, offset });
+    ? matchRows(ownerId, parsed.match, { kind, tag, limit, offset })
+    : likeRows(ownerId, parsed.rest, { kind, tag, limit, offset });
 
   const terms = parsed.terms.length ? parsed.terms : [parsed.rest].filter(Boolean);
 
@@ -72,11 +72,12 @@ export function search(raw: string, opts: SearchOptions = {}): SearchHit[] {
 }
 
 function matchRows(
+  ownerId: string,
   match: string,
   o: { kind: 'page' | 'pdf' | null; tag: string | null; limit: number; offset: number },
 ): Row[] {
   const filters: string[] = [];
-  const args: unknown[] = [match];
+  const args: unknown[] = [match, ownerId];
 
   if (o.kind) {
     filters.push('d.kind = ?');
@@ -95,9 +96,17 @@ function matchRows(
   // what the user meant.
   return getDb()
     .prepare(
+      // The owner filter belongs inside the CTE, not after it. fts_docs is
+      // contentless and has no owner of its own, so the join to search_docs is
+      // what supplies one — and it has to happen before the LIMIT. Filtering
+      // afterwards would take the best 300 matches across every account and
+      // then discard most of them, which on a busy instance looks exactly like
+      // "search is broken, it finds nothing".
       `WITH hits AS (
-         SELECT rowid AS doc_id, bm25(fts_docs, 8.0, 1.0) AS rank
-           FROM fts_docs WHERE fts_docs MATCH ?
+         SELECT f.rowid AS doc_id, bm25(fts_docs, 8.0, 1.0) AS rank
+           FROM fts_docs f
+           JOIN search_docs sd ON sd.rowid = f.rowid
+          WHERE f.fts_docs MATCH ? AND sd.owner_id = ?
           ORDER BY rank LIMIT 300
        )
        SELECT d.rowid, d.kind, d.attachment_id, d.pdf_page_no,
@@ -126,6 +135,7 @@ function matchRows(
  * emoji. Rare, but it should still find something rather than silently fail.
  */
 function likeRows(
+  ownerId: string,
   needle: string,
   o: { kind: 'page' | 'pdf' | null; tag: string | null; limit: number; offset: number },
 ): Row[] {
@@ -134,7 +144,7 @@ function likeRows(
   const pattern = `%${normalizeFold(trimmed).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
   const filters: string[] = [];
-  const args: unknown[] = [pattern, pattern];
+  const args: unknown[] = [ownerId, pattern, pattern];
   if (o.kind) {
     filters.push('d.kind = ?');
     args.push(o.kind);
@@ -150,7 +160,8 @@ function likeRows(
          FROM search_docs d
          LEFT JOIN attachments a ON a.id = d.attachment_id
          LEFT JOIN pages p ON p.id = COALESCE(d.page_id, a.page_id) AND p.archived_at IS NULL
-        WHERE (COALESCE(d.page_id, a.page_id) IS NULL OR p.id IS NOT NULL)
+        WHERE d.owner_id = ?
+          AND (COALESCE(d.page_id, a.page_id) IS NULL OR p.id IS NOT NULL)
           AND (d.title LIKE ? ESCAPE '\\' OR d.body LIKE ? ESCAPE '\\')
           ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
         ORDER BY d.updated_at DESC
@@ -160,13 +171,21 @@ function likeRows(
 }
 
 /** Title-only lookup that powers [[wikilink]] autocomplete. */
-export function searchPageTitles(raw: string, limit = 8): { id: string; title: string; icon: string | null }[] {
+export function searchPageTitles(
+  ownerId: string,
+  raw: string,
+  limit = 8,
+): { id: string; title: string; icon: string | null }[] {
   const query = raw.trim();
   const db = getDb();
   if (!query) {
     return db
-      .prepare(`SELECT id, title, icon FROM pages WHERE archived_at IS NULL ORDER BY updated_at DESC LIMIT ?`)
-      .all(limit) as { id: string; title: string; icon: string | null }[];
+      .prepare(
+        `SELECT id, title, icon FROM pages
+          WHERE owner_id = ? AND archived_at IS NULL
+          ORDER BY updated_at DESC LIMIT ?`,
+      )
+      .all(ownerId, limit) as { id: string; title: string; icon: string | null }[];
   }
 
   const parsed = parseQuery(query, { live: true });
@@ -178,9 +197,10 @@ export function searchPageTitles(raw: string, limit = 8): { id: string; title: s
          FROM fts_docs f
          JOIN search_docs d ON d.rowid = f.rowid
          JOIN pages p ON p.id = d.page_id
-        WHERE f.fts_docs MATCH ? AND d.kind = 'page' AND p.archived_at IS NULL
+        WHERE f.fts_docs MATCH ? AND d.owner_id = ? AND d.kind = 'page'
+          AND p.archived_at IS NULL
         ORDER BY bm25(fts_docs, 8.0, 1.0)
         LIMIT ?`,
     )
-    .all(`{title_ng} : ${parsed.match}`, limit) as { id: string; title: string; icon: string | null }[];
+    .all(`{title_ng} : ${parsed.match}`, ownerId, limit) as { id: string; title: string; icon: string | null }[];
 }

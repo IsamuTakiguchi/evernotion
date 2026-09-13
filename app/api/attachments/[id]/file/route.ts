@@ -7,13 +7,21 @@ export const dynamic = 'force-dynamic';
 
 /** Serves the stored PDF with range support, which pdf.js relies on. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
+  // Scoped to the owner. Attachment ids are short and appear in page HTML, so
+  // without this any signed-in account could download any uploaded PDF by id —
+  // the single worst leak in the app, since a PDF is usually the most sensitive
+  // thing in it.
   const row = getDb()
-    .prepare('SELECT storage_path, mime, filename FROM attachments WHERE id = ?')
-    .get(id) as { storage_path: string; mime: string; filename: string } | undefined;
+    .prepare(
+      'SELECT storage_path, mime, filename FROM attachments WHERE id = ? AND owner_id = ?',
+    )
+    .get(id, session.userId) as
+    | { storage_path: string; mime: string; filename: string }
+    | undefined;
 
   if (!row || !fs.existsSync(row.storage_path)) {
     return new Response('not found', { status: 404 });

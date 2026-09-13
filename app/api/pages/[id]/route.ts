@@ -10,22 +10,22 @@ export const dynamic = 'force-dynamic';
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(req: Request, { params }: Params) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
-  const page = getPage(id);
+  const page = getPage(session.userId, id);
   if (!page) return NextResponse.json({ error: 'not found' }, { status: 404 });
   return NextResponse.json({
     page: { ...page, doc: JSON.parse(page.doc_json) as JSONContent },
-    backlinks: getBacklinks(id),
-    unresolved: getUnresolvedLinks(id),
+    backlinks: getBacklinks(session.userId, id),
+    unresolved: getUnresolvedLinks(session.userId, id),
   });
 }
 
 export async function PATCH(req: Request, { params }: Params) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as {
@@ -35,7 +35,7 @@ export async function PATCH(req: Request, { params }: Params) {
     parentId?: string | null;
     isFavorite?: boolean;
   };
-  const page = updatePage(id, body);
+  const page = updatePage(session.userId, id, body);
   if (!page) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
   // Re-embed in the background; the editor should never wait on the model.
@@ -43,16 +43,16 @@ export async function PATCH(req: Request, { params }: Params) {
 
   return NextResponse.json({
     page,
-    backlinks: getBacklinks(id),
-    unresolved: getUnresolvedLinks(id),
+    backlinks: getBacklinks(session.userId, id),
+    unresolved: getUnresolvedLinks(session.userId, id),
   });
 }
 
 export async function DELETE(req: Request, { params }: Params) {
-  const denied = await requireSession(req);
-  if (denied) return denied;
+  const session = await requireSession(req);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
-  deletePage(id);
+  deletePage(session.userId, id);
   return NextResponse.json({ ok: true });
 }

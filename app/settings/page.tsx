@@ -9,7 +9,12 @@ type SettingsInfo = {
   hasStoredKey: boolean;
   fromEnv: boolean;
   keyPreview: string | null;
-  protected: boolean;
+  authMode: 'google' | 'open' | 'locked';
+};
+
+type Me = {
+  mode: string;
+  user: { id: string; email: string; name: string | null; picture: string | null } | null;
 };
 
 type AiStatus = {
@@ -20,6 +25,7 @@ type AiStatus = {
 
 export default function SettingsPage() {
   const [info, setInfo] = useState<SettingsInfo | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [key, setKey] = useState('');
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -29,6 +35,7 @@ export default function SettingsPage() {
   const load = () => {
     api.get<SettingsInfo>('/api/settings').then(setInfo).catch(() => setInfo(null));
     api.get<AiStatus>('/api/ai/status').then(setStatus).catch(() => setStatus(null));
+    api.get<Me>('/api/me').then(setMe).catch(() => setMe(null));
   };
 
   useEffect(load, []);
@@ -161,11 +168,13 @@ export default function SettingsPage() {
         </p>
       )}
 
-      {info?.protected && (
+      {info?.authMode && info.authMode !== 'open' && (
         <section className="mb-10">
-          <h2 className="mb-1 text-[15px] font-medium">セッション</h2>
+          <h2 className="mb-1 text-[15px] font-medium">アカウント</h2>
           <p className="mb-3 text-[13px]" style={{ color: 'var(--text-muted)' }}>
-            この環境はパスワードで保護されています。
+            {me?.user
+              ? `${me.user.email} でログイン中です。ノートはこのアカウント専用で、他の人からは見えません。`
+              : 'Googleアカウントでログインしています。'}
           </p>
           <button
             onClick={async () => {
