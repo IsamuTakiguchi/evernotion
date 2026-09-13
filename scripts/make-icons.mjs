@@ -30,8 +30,8 @@ fs.copyFileSync(path.join(root, 'assets', 'icon.svg'), path.join(root, 'app', 'i
 console.log('wrote app/icon.svg');
 
 const manifest = {
-  name: 'Evernotion',
-  short_name: 'Evernotion',
+  name: 'Evernotian',
+  short_name: 'Evernotian',
   description: 'ノート・PDF全文検索・第2の脳を1つにしたローカルノートアプリ',
   start_url: '/',
   display: 'standalone',

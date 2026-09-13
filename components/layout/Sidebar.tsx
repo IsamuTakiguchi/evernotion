@@ -68,7 +68,7 @@ export function Sidebar({ onOpenSearch, tree, reloadTree, onClose }: Props) {
     >
       <div className="flex items-center gap-2 px-3 pt-3 pb-2">
         <Logo size={22} />
-        <span className="font-semibold tracking-tight">Evernotion</span>
+        <span className="font-semibold tracking-tight">Evernotian</span>
         <button
           onClick={toggleTheme}
           className="ml-auto rounded p-1.5 hover:bg-[var(--bg-hover)]"

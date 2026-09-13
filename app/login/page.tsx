@@ -36,7 +36,7 @@ export default async function LoginPage({
           <div className="mb-7 flex items-center gap-3">
             <Logo size={40} />
             <div>
-              <h1 className="text-xl font-semibold tracking-tight">Evernotion</h1>
+              <h1 className="text-xl font-semibold tracking-tight">Evernotian</h1>
               <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
                 ノート、PDF全文検索、第2の脳をひとつに
               </p>

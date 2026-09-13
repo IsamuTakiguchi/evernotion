@@ -1,4 +1,4 @@
-# Evernotion
+# Evernotian
 
 Notionのような書き心地、Evernoteのような**PDF内文字検索**、Obsidianのような**第2の脳**を、
 ひとつのローカルアプリにまとめたノートアプリです。
@@ -6,7 +6,7 @@ Notionのような書き心地、Evernoteのような**PDF内文字検索**、Ob
 データはすべて手元のSQLiteとファイルに保存され、外部サービスは必要ありません。
 
 <p align="center">
-  <img src="assets/icon.svg" width="96" alt="Evernotion">
+  <img src="assets/icon.svg" width="96" alt="Evernotian">
 </p>
 
 ## できること

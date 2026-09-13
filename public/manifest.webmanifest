@@ -1,6 +1,6 @@
 {
-  "name": "Evernotion",
-  "short_name": "Evernotion",
+  "name": "Evernotian",
+  "short_name": "Evernotian",
   "description": "ノート・PDF全文検索・第2の脳を1つにしたローカルノートアプリ",
   "start_url": "/",
   "display": "standalone",

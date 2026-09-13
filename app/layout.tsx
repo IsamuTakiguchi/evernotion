@@ -3,10 +3,10 @@ import './globals.css';
 import { AppShell } from '@/components/layout/AppShell';
 
 export const metadata: Metadata = {
-  title: 'Evernotion',
+  title: 'Evernotian',
   description: 'ノート・PDF全文検索・第2の脳を1つにしたローカルノートアプリ',
   manifest: '/manifest.webmanifest',
-  applicationName: 'Evernotion',
+  applicationName: 'Evernotian',
 };
 
 export const viewport: Viewport = {

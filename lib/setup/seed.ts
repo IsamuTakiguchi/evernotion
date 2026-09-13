@@ -66,7 +66,7 @@ function welcomeDoc(usageId: string, japaneseId: string): JSONContent {
   return {
     type: 'doc',
     content: [
-      p('Evernotion へようこそ。ノート・PDF全文検索・第2の脳をひとつにしたローカルアプリです。'),
+      p('Evernotian へようこそ。ノート・PDF全文検索・第2の脳をひとつにしたローカルアプリです。'),
       p('このノートは自動で作成されました。読み終えたら自由に書き換えたり、削除したりして構いません。'),
 
       h(2, 'まず試してみる'),
@@ -104,7 +104,7 @@ function welcomeDoc(usageId: string, japaneseId: string): JSONContent {
 const usageDoc: JSONContent = {
   type: 'doc',
   content: [
-    p('Evernotion の各機能の使い方です。'),
+    p('Evernotian の各機能の使い方です。'),
 
     h(2, 'PDFを検索できるようにする'),
     p('PDFをノートにドラッグ&ドロップすると、バックグラウンドで解析が始まります。進捗は添付ブロックに表示されます。'),

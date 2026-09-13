@@ -111,7 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <IconMenu size={19} />
           </button>
           <Logo size={19} />
-          <span className="text-[14px] font-semibold tracking-tight">Evernotion</span>
+          <span className="text-[14px] font-semibold tracking-tight">Evernotian</span>
           <button
             onClick={() => setSearchOpen(true)}
             className="ml-auto rounded p-1.5 hover:bg-[var(--bg-hover)]"
