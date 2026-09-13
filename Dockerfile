@@ -10,19 +10,33 @@ ENV NEXT_TELEMETRY_DISABLED=1
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
-# .npmrc sets onnxruntime-node-install-cuda=skip, which keeps a 302MB CUDA
-# execution provider out of an image that will never see a GPU.
-# --ignore-scripts is not an option here: sharp and the native addons need
-# their install scripts to place the right prebuild.
-RUN npm ci --no-audit --no-fund
+
+# --ignore-scripts is doing real work here, not just saving time.
+#
+# better-sqlite3 ships a binding.gyp alongside its prebuilt binaries, and npm
+# treats the mere presence of that file as "build this from source" whenever a
+# package declares no install script of its own. So a normal `npm ci` runs
+# `node-gyp rebuild`, which needs Python and a C++ toolchain this image does
+# not have, and the build fails — even though the prebuilt binary it needs is
+# already sitting in the tarball and is what gets loaded at require time.
+#
+# Every native dependency here ships usable prebuilds the same way, so no
+# install script needs to run. scripts/check-native.mjs verifies that in the
+# next stage rather than trusting it.
+RUN npm ci --ignore-scripts --no-audit --no-fund
 
 # --------------------------------------------------------------- build ------
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Copies pdf.js CMaps into public/ — without them Japanese PDFs extract as
-# empty text. Normally run by postinstall, which npm ci already skipped past.
+
+# Fail the build here if a prebuilt binary is missing, rather than shipping an
+# image whose search or OCR dies the first time someone uses it.
+RUN node scripts/check-native.mjs
+
+# Normally npm's postinstall; --ignore-scripts skipped it. Without the CMaps,
+# Japanese PDFs extract as empty text and every page falls through to OCR.
 RUN node scripts/copy-pdfjs-assets.mjs \
  && npx next build
 

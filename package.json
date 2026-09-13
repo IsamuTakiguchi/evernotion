@@ -17,7 +17,8 @@
     "prebuild": "node scripts/copy-pdfjs-assets.mjs",
     "postinstall": "node scripts/copy-pdfjs-assets.mjs",
     "e2e": "node scripts/e2e.mjs",
-    "screenshot": "node scripts/screenshot.mjs"
+    "screenshot": "node scripts/screenshot.mjs",
+    "check-native": "node scripts/check-native.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

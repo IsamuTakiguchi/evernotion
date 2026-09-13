@@ -111,6 +111,7 @@ npm start          # 本番サーバー
 npm run typecheck  # 型チェック
 npm run warmup     # モデルを事前取得（任意。通常は初回起動時に自動で取得されます）
 npm run testpdfs   # テスト用の日本語PDFを生成
+npm run check-native # ネイティブモジュールが実際に読み込めるか確認
 npm run smoke      # APIレベルのE2Eテスト（別ターミナルでサーバーを起動しておく）
 npm run e2e        # ブラウザ操作のE2Eテスト（同上）
 npm run icons      # assets/icon.svg からアイコン一式を生成
@@ -171,6 +172,24 @@ EVERNOTION_PASSWORD='設定したパスワード' npm run smoke -- https://<あ�
 
 認証が効いているか、日本語検索・PDF抽出・OCRが本番環境で動くかまで確認します
 （テスト用のノートとPDFを書き込むので、実データを入れた後は実行しないでください）。
+
+### ビルドについて
+
+`npm ci --ignore-scripts` でインストールしています。手抜きではなく、必要だからです。
+
+`better-sqlite3` はビルド済みバイナリを同梱していますが、同時に `binding.gyp` も含んでいます。
+npm は「`binding.gyp` があってinstallスクリプトが無い」パッケージを見ると
+**自動で `node-gyp rebuild` を実行します**。`node:22-slim` にはPythonもコンパイラも無いので、
+同梱バイナリが使える状態にもかかわらずビルドが落ちます。
+
+このプロジェクトのネイティブ依存（better-sqlite3 / onnxruntime-node / sharp /
+@napi-rs/canvas / tesseract.js）はすべて、npmのtarballに使えるビルド済みバイナリを同梱しています。
+そのためinstallスクリプトは1つも必要ありません。
+
+ただしこれは他者のパッケージングに依存した前提なので、信じずに検証します。
+ビルド中に `npm run check-native` が走り、各ネイティブモジュールが実際にロードできるか確認します。
+どれか1つでも失敗すればビルドが止まります（起動はするのに検索やOCRだけが死んでいるイメージを
+出荷しないため）。
 
 ### デプロイ時の注意
 
