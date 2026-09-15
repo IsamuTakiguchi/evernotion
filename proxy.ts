@@ -65,8 +65,10 @@ export const config = {
      * Everything except:
      *   login page and the sign-in endpoints (or there would be no way in)
      *   /api/health        (the platform health check runs unauthenticated)
+     *   /api/mcp           (Claude authenticates with a bearer token, not a
+     *                       cookie; the route verifies it itself)
      *   Next.js internals and the icons, which are not secrets
      */
-    '/((?!login|api/auth|api/health|_next/static|_next/image|icon.svg|apple-icon.png|manifest.webmanifest|icon-192.png|icon-512.png|og-icon.png|favicon.ico).*)',
+    '/((?!login|api/auth|api/health|api/mcp|_next/static|_next/image|icon.svg|apple-icon.png|manifest.webmanifest|icon-192.png|icon-512.png|og-icon.png|favicon.ico).*)',
   ],
 };

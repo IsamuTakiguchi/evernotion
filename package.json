@@ -26,6 +26,7 @@
     "@floating-ui/dom": "^1.8.0",
     "@floating-ui/react-dom": "^2.1.9",
     "@huggingface/transformers": "^4.2.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@napi-rs/canvas": "^1.0.9",
     "@tiptap/extension-code-block-lowlight": "^3.31.3",
     "@tiptap/extension-details": "^3.31.3",
@@ -53,7 +54,8 @@
     "pdfjs-dist": "^6.3.289",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

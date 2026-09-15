@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/client/api';
 import { IconSettings, IconSpinner } from '@/components/ui/Icons';
 import { ImportPanel } from '@/components/settings/ImportPanel';
+import { ClaudePanel } from '@/components/settings/ClaudePanel';
 
 type SettingsInfo = {
   aiEnabled: boolean;
@@ -161,6 +162,8 @@ export default function SettingsPage() {
       </section>
 
       <ImportPanel />
+
+      <ClaudePanel />
 
       {message && (
         <p

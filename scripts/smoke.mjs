@@ -600,6 +600,117 @@ async function main() {
   const related = await get(`/api/ai/related?pageId=${noteId}`);
   check('related-notes responds without an API key', Array.isArray(related.related));
 
+  // --- Claude, over MCP ---------------------------------------------------
+  //
+  // The round trip is the point. A token is issued the way the settings page
+  // issues one, a note is written through the MCP endpoint the way Claude
+  // would write it, and then the app's own search is asked for it — with a
+  // two-character Japanese query, which is the shape that only works because
+  // the note went through the normal indexing path. Either half passing alone
+  // would prove nothing.
+  console.log('\nClaude (MCP)');
+  {
+    const REVISION = '2026-07-28';
+    const envelope = {
+      'io.modelcontextprotocol/protocolVersion': REVISION,
+      'io.modelcontextprotocol/clientCapabilities': {},
+    };
+
+    let rpcId = 0;
+    const rpc = async (token, method, params, headers = {}) => {
+      const res = await fetch(`${BASE}/api/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'MCP-Protocol-Version': REVISION,
+          'Mcp-Method': method,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...headers,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: ++rpcId, method, params: { ...params, _meta: envelope },
+        }),
+      });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const callTool = async (token, name, args) => {
+      const { status, body } = await rpc(token, 'tools/call',
+        { name, arguments: args }, { 'Mcp-Name': name });
+      const text = body.result?.content?.[0]?.text ?? '';
+      return { status, isError: body.result?.isError === true, text };
+    };
+
+    check('MCP refuses a call with no token', (await rpc(null, 'tools/list', {})).status === 401);
+    check('MCP refuses a token that was never issued',
+      (await rpc('evn_' + '0'.repeat(64), 'tools/list', {})).status === 401);
+    check('MCP answers 405 to GET — this revision is POST-only',
+      (await fetch(`${BASE}/api/mcp`)).status === 405);
+
+    const issued = await post('/api/tokens', { name: 'smoke' });
+    check('a token can be issued', issued.status === 201, String(issued.status));
+
+    const secret = issued.body?.secret;
+    if (secret) {
+      check('the token is shown once, in full', typeof secret === 'string' && secret.startsWith('evn_'));
+
+      const list = await rpc(secret, 'tools/list', {});
+      const names = (list.body.result?.tools ?? []).map((t) => t.name);
+      check('Claude is offered the notes as tools', names.includes('search_notes')
+        && names.includes('create_note'), names.join(','));
+      check('no tool can replace or delete a note',
+        !names.some((n) => /delete|remove|replace|overwrite/.test(n)), names.join(','));
+
+      // Headers and body have to agree; the library answers -32020 when they
+      // do not, and a client that stops seeing that has stopped being checked.
+      const mismatch = await rpc(secret, 'tools/call', { name: 'list_tags', arguments: {} },
+        { 'Mcp-Method': 'tools/list', 'Mcp-Name': 'list_tags' });
+      check('headers disagreeing with the body are rejected',
+        mismatch.status === 400 && mismatch.body.error?.code === -32020,
+        `${mismatch.status} ${mismatch.body.error?.code}`);
+
+      const mcpMarker = Array.from({ length: 6 }, () =>
+        'アイウエオカキクケコサシスセソ'[Math.floor(Math.random() * 15)]).join('');
+
+      const created = await callTool(secret, 'create_note', {
+        title: `クロードのノート ${mcpMarker}`,
+        markdown: `## 経緯\n\n合言葉は${mcpMarker}。契約の確認が必要。\n\n- [x] 済んだ作業\n`,
+      });
+      check('Claude can create a note', created.status === 200 && !created.isError, created.text);
+
+      const note = created.isError ? null : JSON.parse(created.text);
+      if (note) {
+        check('the new note is linkable', typeof note.url === 'string'
+          && note.url.endsWith(`/p/${note.id}`), note.url);
+        check('the link is not the container’s own address',
+          !/localhost|0\.0\.0\.0|127\.0\.0\.1/.test(note.url), note.url);
+
+        // The app's side of the round trip: its own search, its own sidebar.
+        check('what Claude wrote is searchable in the app',
+          (await searchHits(mcpMarker)).some((h) => h.pageId === note.id));
+        check('a two-character Japanese query finds it too',
+          (await searchHits('契約')).some((h) => h.pageId === note.id));
+        check('it appears in the sidebar like any other note',
+          (await get('/api/pages')).tree.some((n) => n.id === note.id));
+
+        const read = await callTool(secret, 'get_note', { noteId: note.id });
+        const markdown = read.isError ? '' : JSON.parse(read.text).markdown;
+        check('Claude reads back the note it wrote',
+          markdown.includes('## 経緯') && markdown.includes(`- [x] 済んだ作業`), markdown);
+      }
+
+      // A revoked token is a token that stops working, which is the only part
+      // of revocation anyone relies on.
+      const tokenId = issued.body?.token?.id;
+      const revoked = await fetch(`${BASE}/api/tokens?id=${encodeURIComponent(tokenId)}`, {
+        method: 'DELETE', headers: authHeaders(),
+      });
+      check('a token can be revoked', revoked.ok);
+      check('a revoked token stops working',
+        (await rpc(secret, 'tools/list', {})).status === 401);
+    }
+  }
+
   // --- report -------------------------------------------------------------
   console.log(`\n${passed} passed, ${failures.length} failed`);
   if (failures.length) {

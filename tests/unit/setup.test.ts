@@ -375,6 +375,11 @@ const UNGUARDED_BY_DESIGN = [
   // same set proxy.ts excludes — the last test in this file keeps the two in
   // step, so widening one without the other is caught.
   'app/api/auth/',
+  // Claude authenticates with a bearer token rather than the session cookie.
+  // Exempt from requireSession, but NOT exempt from authenticating — the test
+  // below asserts it verifies a token instead, so "unguarded by design" here
+  // never quietly means unguarded.
+  'app/api/mcp/route.ts',
 ];
 
 const isOpenByDesign = (file: string) =>
@@ -418,6 +423,20 @@ test('every exported handler in a guarded route checks the session', () => {
   assert.deepEqual(offenders, []);
 });
 
+test('the MCP route authenticates with a token instead of a session', () => {
+  // It is excused from requireSession above; this is the check that it did
+  // not end up with no check at all. Both halves have to be present: the
+  // bearer token has to be read, and it has to be resolved to an owner.
+  const source = fs.readFileSync('app/api/mcp/route.ts', 'utf8');
+  assert.match(source, /bearerToken\s*\(/, 'reads the bearer token');
+  assert.match(source, /ownerForToken\s*\(/, 'resolves it to an account');
+  assert.match(source, /401/, 'refuses when it does not resolve');
+
+  // And the owner it serves must come from that token, never from the request.
+  assert.match(source, /authInfo:\s*\{[^}]*clientId:\s*ownerId/,
+    'the MCP server is built for the token’s owner');
+});
+
 test('the deliberately-open routes are the ones proxy.ts also excludes', () => {
   const proxySource = fs.readFileSync('proxy.ts', 'utf8');
   const matcher = proxySource.match(/'\/\(\(\?!(.+?)\)\.\*\)'/)?.[1];
@@ -425,7 +444,7 @@ test('the deliberately-open routes are the ones proxy.ts also excludes', () => {
 
   // If one layer stops excluding a path and the other does not, an endpoint
   // either becomes unreachable or becomes unprotected. Keep them in step.
-  for (const fragment of ['api/auth', 'api/health']) {
+  for (const fragment of ['api/auth', 'api/health', 'api/mcp']) {
     assert.ok(matcher.includes(fragment), `proxy matcher no longer excludes ${fragment}`);
   }
 });

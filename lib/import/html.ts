@@ -76,7 +76,16 @@ function paragraphsFrom(nodes: JSONContent[]): JSONContent[] {
     }
   }
   flush();
-  return out;
+
+  // GFM writes `- [x] text`, so removing the checkbox leaves the space that
+  // followed it at the head of the line. Harmless on screen, but it survives
+  // into the stored document and comes back doubled on the way out.
+  for (const block of out) {
+    const first = block.content?.[0];
+    if (first?.type === 'text' && first.text) first.text = first.text.replace(/^ +/, '');
+  }
+  return out.filter((b) => b.type !== 'paragraph' || (b.content?.length ?? 0) > 0
+    || !b.content);
 }
 
 /** Inline nodes only, for containers that cannot hold blocks at all. */
