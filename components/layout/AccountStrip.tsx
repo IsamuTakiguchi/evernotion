@@ -27,7 +27,7 @@ export function AccountStrip() {
   const label = me.user.name || me.user.email;
 
   return (
-    <div className="mx-2 mb-2 flex items-center gap-2 rounded-lg px-2 py-1.5">
+    <div className="ev-glass mx-2 mb-2 flex items-center gap-2 rounded-xl border px-2 py-1.5">
       {me.user.picture ? (
         // eslint-disable-next-line @next/next/no-img-element -- Google's CDN, not in next.config's allowlist
         <img src={me.user.picture} alt="" width={22} height={22} className="shrink-0 rounded-full" />
@@ -49,7 +49,7 @@ export function AccountStrip() {
           await fetch('/api/auth/logout', { method: 'POST' });
           window.location.href = '/login';
         }}
-        className="shrink-0 rounded px-1.5 py-0.5 text-[11px] hover:bg-[var(--bg-hover)]"
+        className="ev-btn shrink-0 rounded-md px-1.5 py-0.5 text-[11px] hover:bg-[var(--bg-hover)]"
         style={{ color: 'var(--text-faint)' }}
       >
         ログアウト

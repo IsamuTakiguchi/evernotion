@@ -68,8 +68,18 @@ export function PageView({ initial }: { initial: PageData }) {
 
   return (
     <div className="flex h-full">
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[760px] px-5 py-8 sm:px-10 lg:px-14 lg:py-14">
+      <div className="min-w-0 flex-1 overflow-y-auto px-0 py-0 sm:px-6 sm:py-6">
+        {/*
+          The sheet the note is written on: opaque, and deliberately not glass.
+          backdrop-filter here would make this a containing block for anything
+          positioned against the viewport inside it — the drag handle's rail
+          and the suggestion popups live in here. It reads as a page resting
+          on the ground, which is all the effect needs it to do.
+        */}
+        <div
+          className="mx-auto max-w-[860px] px-5 py-8 sm:rounded-2xl sm:border sm:px-10 sm:py-12 lg:px-14 lg:py-14"
+          style={{ background: 'var(--bg)', boxShadow: 'var(--shadow)' }}
+        >
           <div className="relative mb-1">
             <button
               onClick={() => setPickerOpen((v) => !v)}
@@ -129,7 +139,7 @@ export function PageView({ initial }: { initial: PageData }) {
         </div>
       </div>
 
-      <aside className="hidden w-[300px] shrink-0 overflow-y-auto border-l xl:block">
+      <aside className="ev-glass-bar hidden w-[300px] shrink-0 overflow-y-auto border-l xl:block">
         <div className="flex border-b text-[13px]">
           <TabButton active={side === 'links'} onClick={() => setSide('links')} icon={<IconLink size={14} />} label="リンク" />
           <TabButton active={side === 'ai'} onClick={() => setSide('ai')} icon={<IconSparkles size={14} />} label="AI" />
@@ -150,10 +160,11 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className="flex flex-1 items-center justify-center gap-1.5 py-2.5"
+      className="ev-btn flex flex-1 items-center justify-center gap-1.5 py-2.5"
       style={{
-        color: active ? 'var(--text)' : 'var(--text-muted)',
+        color: active ? 'var(--accent-text)' : 'var(--text-muted)',
         borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+        background: active ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : undefined,
       }}
     >
       {icon}

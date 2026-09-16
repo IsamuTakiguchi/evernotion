@@ -62,9 +62,8 @@ export function SetupStatus() {
       {issues.map((issue, i) => (
         <div
           key={i}
-          className="rounded-lg border px-2.5 py-2 text-[11.5px] leading-relaxed"
+          className="ev-glass ev-anim-pop rounded-xl border px-2.5 py-2 text-[11.5px] leading-relaxed"
           style={{
-            background: 'var(--bg-subtle)',
             borderColor: issue.level === 'error' ? 'var(--danger)' : undefined,
             color: issue.level === 'error' ? 'var(--danger)' : 'var(--text-muted)',
           }}
@@ -76,8 +75,8 @@ export function SetupStatus() {
       ))}
       {state.phase !== 'ready' && (
         <div
-          className="rounded-lg border px-2.5 py-2 text-[11.5px] leading-relaxed"
-          style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)' }}
+          className="ev-glass ev-anim-pop rounded-xl border px-2.5 py-2 text-[11.5px] leading-relaxed"
+          style={{ color: 'var(--text-muted)' }}
         >
           <div className="flex items-start gap-1.5">
             {busy && <IconSpinner size={12} className="mt-0.5 shrink-0" />}

@@ -27,6 +27,42 @@
   --mark-text: #713f12;
   --danger: #e03e3e;
   --shadow: 0 1px 2px rgba(15, 15, 15, .06), 0 4px 12px rgba(15, 15, 15, .08);
+
+  /*
+   * Glass. Nothing here is a new colour: every value is mixed from the palette
+   * above, so a future theme only has to redefine the palette and the glass
+   * follows. The three tints are the app icon's own gradient.
+   */
+  --glass-bg: color-mix(in srgb, var(--bg) 62%, transparent);
+  /* Denser: a menu floating over a paragraph has to be read, not admired. */
+  --glass-bg-strong: color-mix(in srgb, var(--bg) 90%, transparent);
+  /* The window's own edges keep the sidebar's warmer neutral. */
+  --glass-bar-bg: color-mix(in srgb, var(--bg-sidebar) 64%, transparent);
+  --glass-border: color-mix(in srgb, var(--text) 13%, transparent);
+  /* The lit top edge. This 1px is what reads as the thickness of the pane. */
+  --glass-highlight: rgba(255, 255, 255, .7);
+  --glass-shade: rgba(15, 15, 15, .05);
+  --glass-blur: 20px;
+  --glass-saturate: 1.8;
+  --glass-shadow: 0 1px 2px rgba(15, 15, 15, .05), 0 10px 30px -10px rgba(15, 15, 15, .16);
+  --glass-shadow-lg: 0 2px 8px rgba(15, 15, 15, .07), 0 28px 64px -16px rgba(15, 15, 15, .28);
+
+  --tint-a: #6366f1;
+  --tint-b: #7c3aed;
+  --tint-c: #a855f7;
+  /*
+   * The ground the glass lies on. A shade off --bg, and that shade is the
+   * whole point: a white pane on a white page is not a pane. Everything the
+   * app writes on top stays --bg, so nothing is written on the tint.
+   */
+  --ground: #f4f4f7;
+  /* How much of the drifting backdrop shows through. Light needs less. */
+  --ambient: .38;
+
+  /* Decelerating, like something heavy settling. */
+  --ease-glass: cubic-bezier(.22, 1, .36, 1);
+  /* Overshoots a little and comes back — for things that pop into existence. */
+  --ease-spring: cubic-bezier(.34, 1.42, .64, 1);
 }
 
 .dark {
@@ -46,6 +82,21 @@
   --mark-text: #fde68a;
   --danger: #ff6369;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .4);
+
+  /*
+   * Dark glass is denser and its highlight is nearly gone: a white inner edge
+   * that reads as "lit" on paper reads as "wrong" against a dark room.
+   */
+  --glass-bg: color-mix(in srgb, var(--bg) 58%, transparent);
+  --glass-bg-strong: color-mix(in srgb, var(--bg) 86%, transparent);
+  --glass-bar-bg: color-mix(in srgb, var(--bg-sidebar) 66%, transparent);
+  --glass-border: color-mix(in srgb, #ffffff 11%, transparent);
+  --glass-highlight: rgba(255, 255, 255, .10);
+  --glass-shade: rgba(0, 0, 0, .3);
+  --glass-shadow: 0 1px 2px rgba(0, 0, 0, .32), 0 10px 30px -10px rgba(0, 0, 0, .55);
+  --glass-shadow-lg: 0 2px 8px rgba(0, 0, 0, .4), 0 28px 64px -16px rgba(0, 0, 0, .7);
+  --ground: #121214;
+  --ambient: .34;
 }
 
 * { border-color: var(--border); }
@@ -73,6 +124,291 @@ mark, .ev-mark {
   color: var(--mark-text);
   border-radius: 3px;
   padding: 0 2px;
+}
+
+/* ----------------------------------------------------------------- glass -- */
+/*
+ * Three surfaces, one material.
+ *
+ *   .ev-glass        a panel sitting on the page
+ *   .ev-glass-bar    an edge of the window — the sidebar, the mobile header
+ *   .ev-glass-raised something floating above everything — palette, popup
+ *
+ * They differ only in density and in how far off the page they look. The
+ * ingredients are the same: a translucent ground, a blur of what is behind it,
+ * a little extra saturation so the colour underneath survives the blur, and a
+ * 1px lit edge that gives the pane a thickness.
+ *
+ * One rule, and it matters: none of these may ever land on .ev-editor,
+ * .ProseMirror or .pdf-text-layer. backdrop-filter, like filter, makes the
+ * element a containing block for fixed-position descendants, and those three
+ * position things against the page.
+ */
+.ev-glass,
+.ev-glass-bar,
+.ev-glass-raised {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-color: var(--glass-border);
+}
+
+.ev-glass {
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+}
+
+.ev-glass-bar {
+  background: var(--glass-bar-bg);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+.ev-glass-raised {
+  position: relative;
+  background: var(--glass-bg-strong);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    inset 0 -1px 0 var(--glass-shade),
+    var(--glass-shadow-lg);
+}
+
+/*
+ * Where there is no backdrop-filter there is no glass, only a washed-out panel
+ * with the page showing through it. Fall back to solid.
+ */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ev-glass, .ev-glass-bar, .ev-glass-raised { background: var(--bg); }
+  .ev-glass-bar { background: var(--bg-sidebar); }
+}
+
+/*
+ * The edge light: a 1px ring, brighter where the light would fall and tinted
+ * with the accent where it would not. Drawn as a padded gradient with its
+ * middle masked out, so it only ever paints the border and never tints the
+ * text inside.
+ */
+.ev-glass-edge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, #ffffff 75%, transparent),
+    transparent 38%,
+    transparent 62%,
+    color-mix(in srgb, var(--accent) 50%, transparent)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/*
+ * A glow that follows the pointer. --mx/--my are written by usePointerGlow;
+ * with no hook attached the defaults put it out of sight and nothing moves.
+ * Kept faint deliberately — it paints over the content, and at this strength
+ * that reads as light on glass rather than as a veil over the text.
+ */
+.ev-glass-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .35s var(--ease-glass);
+  background: radial-gradient(
+    18rem circle at var(--mx, 50%) var(--my, -20%),
+    color-mix(in srgb, var(--accent) 16%, transparent),
+    transparent 70%
+  );
+}
+.ev-glass-glow[data-glow='on']::after { opacity: 1; }
+
+/* -------------------------------------------------------------- backdrop -- */
+/*
+ * The app's own ground, a shade away from the page colour so that a pane of
+ * glass has something to be lighter than.
+ */
+.ev-ground { background: var(--ground); }
+
+/*
+ * Glass over a flat white page is just a translucent rectangle. This is what
+ * it refracts: three slow washes in the app icon's own colours, drifting
+ * against each other. Half the effect lives in this one element.
+ */
+.ev-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--ambient);
+  background:
+    radial-gradient(26rem 22rem at 6% 2%, var(--tint-a), transparent 66%),
+    radial-gradient(30rem 24rem at 97% 10%, var(--tint-c), transparent 66%),
+    radial-gradient(34rem 26rem at 80% 98%, var(--tint-b), transparent 64%),
+    radial-gradient(24rem 20rem at 22% 92%, var(--tint-a), transparent 68%);
+  /*
+   * Scaled up rather than inset, so those percentages still mean what they say
+   * on screen. An inset box would put "6% 2%" outside the viewport entirely,
+   * and the corner it was meant to light would stay white.
+   */
+  transform: scale(1.25);
+  animation: ev-drift 46s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+/* ---------------------------------------------------------------- motion -- */
+
+@keyframes ev-drift {
+  from { transform: scale(1.25) translate3d(0, 0, 0); }
+  to   { transform: scale(1.4) translate3d(2.5%, -2%, 0); }
+}
+
+@keyframes ev-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Comes up from below and settles — the palette, dialogs, popups. */
+@keyframes ev-rise {
+  from { opacity: 0; transform: translateY(14px) scale(.975); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes ev-pop {
+  from { opacity: 0; transform: scale(.94); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* One pass of light across a button, on hover. */
+@keyframes ev-sheen {
+  from { transform: translateX(-130%) skewX(-18deg); }
+  to   { transform: translateX(130%) skewX(-18deg); }
+}
+
+@keyframes ev-slide-in {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.ev-anim-fade  { animation: ev-fade .2s var(--ease-glass) both; }
+.ev-anim-rise  { animation: ev-rise .26s var(--ease-spring) both; }
+.ev-anim-pop   { animation: ev-pop .18s var(--ease-spring) both; }
+.ev-anim-slide { animation: ev-slide-in .3s var(--ease-glass) both; }
+
+/* ------------------------------------------------------ interactive bits -- */
+
+/* A surface that answers the pointer: cards, results, panels. */
+.ev-lift {
+  transition:
+    background .18s var(--ease-glass),
+    border-color .18s var(--ease-glass),
+    box-shadow .18s var(--ease-glass),
+    transform .18s var(--ease-glass);
+}
+.ev-lift:hover { transform: translateY(-1px); }
+.ev-lift:active { transform: translateY(0) scale(.99); }
+
+/*
+ * A row in a list. It leans towards the pointer rather than lifting: a column
+ * of rows each rising a pixel looks like a keyboard, not like a list.
+ */
+.ev-row {
+  transition:
+    background .16s var(--ease-glass),
+    color .16s var(--ease-glass),
+    transform .16s var(--ease-glass);
+}
+.ev-row:hover { transform: translateX(2px); }
+
+.ev-btn {
+  position: relative;
+  overflow: hidden;
+  transition:
+    background .18s var(--ease-glass),
+    border-color .18s var(--ease-glass),
+    box-shadow .18s var(--ease-glass),
+    transform .18s var(--ease-glass);
+}
+.ev-btn:active { transform: scale(.97); }
+.ev-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .45), transparent);
+  transform: translateX(-130%) skewX(-18deg);
+  pointer-events: none;
+}
+.ev-btn:hover::after { animation: ev-sheen .7s var(--ease-glass); }
+.ev-btn:disabled::after { animation: none; }
+
+/* The one loud button on a screen: sign in, send, issue. */
+.ev-btn-primary {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--tint-a), var(--tint-b) 55%, var(--tint-c));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .3),
+    0 6px 20px -8px color-mix(in srgb, var(--tint-b) 70%, transparent);
+}
+.ev-btn-primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .34),
+    0 10px 26px -8px color-mix(in srgb, var(--tint-b) 80%, transparent);
+}
+
+/* The lit pill behind the selected row of a list. */
+.ev-selected {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* ------------------------------------------------- transitions of pages -- */
+/*
+ * Old content leaves quickly so it stops competing for attention; new content
+ * arrives more slowly, after it has gone.
+ */
+::view-transition-old(.ev-page) {
+  animation: 140ms ease-in both ev-page-out;
+}
+::view-transition-new(.ev-page) {
+  animation: 280ms var(--ease-glass) 110ms both ev-page-in;
+}
+
+@keyframes ev-page-out {
+  to { opacity: 0; transform: translateY(-6px); filter: blur(3px); }
+}
+@keyframes ev-page-in {
+  from { opacity: 0; transform: translateY(10px); filter: blur(4px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+
+/* ------------------------------------------------------- reduced motion -- */
+/*
+ * Everything above is decoration. Somebody who has asked their system for less
+ * movement gets the layout and none of the movement — which has to include the
+ * page transitions, or navigation keeps sliding after the rest has stopped.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .ev-ambient { animation: none; transform: none; }
+  .ev-lift:hover, .ev-row:hover, .ev-btn:active { transform: none; }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
 }
 
 /* ---------------------------------------------------------------- editor -- */

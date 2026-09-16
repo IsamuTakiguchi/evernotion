@@ -4,6 +4,7 @@ import { getBacklinks, getPage, getUnresolvedLinks } from '@/lib/db/queries';
 import { PageView } from '@/components/editor/PageView';
 import { requireUserId } from '@/lib/auth/guard';
 import type { JSONContent } from '@/lib/editor/doc';
+import { PageTransition } from '@/components/layout/PageTransition';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,9 +31,11 @@ export default async function PageRoute({ params }: { params: Promise<{ id: stri
   };
 
   return (
-    // useSearchParams in PageView requires a Suspense boundary.
-    <Suspense fallback={null}>
-      <PageView key={id} initial={initial} />
-    </Suspense>
+    <PageTransition>
+      {/* useSearchParams in PageView requires a Suspense boundary. */}
+      <Suspense fallback={null}>
+        <PageView key={id} initial={initial} />
+      </Suspense>
+    </PageTransition>
   );
 }

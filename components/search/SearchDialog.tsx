@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/client/api';
+import { usePointerGlow } from '@/lib/client/usePointerGlow';
 import { IconFile, IconPdf, IconSearch, IconSparkles, IconSpinner } from '@/components/ui/Icons';
 
 export type SnippetRun = { text: string; mark: boolean };
@@ -38,6 +39,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
+  const glow = usePointerGlow();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -131,13 +133,13 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 pt-[12vh] px-4"
+      className="ev-anim-fade fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-[12vh] backdrop-blur-[3px]"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl border"
-        style={{ background: 'var(--bg)', boxShadow: 'var(--shadow)' }}
+        className="ev-glass-raised ev-glass-edge ev-glass-glow ev-anim-rise w-full max-w-2xl overflow-hidden rounded-2xl border"
         onClick={(e) => e.stopPropagation()}
+        {...glow}
       >
         <div className="flex items-center gap-2 border-b px-4">
           <IconSearch size={17} className="shrink-0" />
@@ -170,8 +172,9 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
               key={`${hit.kind}-${hit.pageId ?? hit.attachmentId}-${hit.pdfPageNo ?? 0}-${i}`}
               onMouseEnter={() => setActive(i)}
               onClick={() => open(hit)}
-              className="flex w-full gap-3 border-b px-4 py-3 text-left last:border-b-0"
-              style={{ background: i === active ? 'var(--bg-hover)' : undefined }}
+              className={`ev-row flex w-full gap-3 border-b px-4 py-3 text-left last:border-b-0${
+                i === active ? ' ev-selected' : ''
+              }`}
             >
               <span className="mt-0.5 shrink-0" style={{ color: 'var(--text-faint)' }}>
                 {hit.kind === 'pdf' ? <IconPdf size={16} /> : hit.icon ? (
@@ -205,7 +208,10 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
             );
             if (extra.length === 0) return null;
             return (
-              <div className="border-t" style={{ background: 'var(--bg-subtle)' }}>
+              <div
+                className="border-t"
+                style={{ background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }}
+              >
                 <div
                   className="flex items-center gap-1.5 px-4 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wide"
                   style={{ color: 'var(--text-faint)' }}
@@ -217,7 +223,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
                   <button
                     key={`sem-${hit.pageId ?? hit.attachmentId}-${hit.pdfPageNo ?? 0}-${i}`}
                     onClick={() => openSemantic(hit)}
-                    className="flex w-full gap-3 px-4 py-2.5 text-left hover:bg-[var(--bg-hover)]"
+                    className="ev-row flex w-full gap-3 px-4 py-2.5 text-left hover:bg-[var(--bg-hover)]"
                   >
                     <span className="mt-0.5 shrink-0" style={{ color: 'var(--text-faint)' }}>
                       {hit.kind === 'pdf' ? <IconPdf size={15} /> : <IconFile size={15} />}

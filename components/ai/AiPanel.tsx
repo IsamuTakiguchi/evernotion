@@ -112,7 +112,7 @@ export function AiPanel({ pageId }: { pageId: string }) {
               <Link
                 key={r.id}
                 href={`/p/${r.id}`}
-                className="flex items-center gap-1.5 rounded px-2 py-1.5 text-[13px] hover:bg-[var(--bg-hover)]"
+                className="ev-row flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-[var(--bg-hover)]"
               >
                 {r.icon ? <span>{r.icon}</span> : <IconFile size={13} />}
                 <span className="min-w-0 flex-1 truncate">{r.title || '無題'}</span>
@@ -134,7 +134,7 @@ export function AiPanel({ pageId }: { pageId: string }) {
             <button
               onClick={suggestTags}
               disabled={tagBusy}
-              className="rounded border px-2 py-0.5 text-[11.5px] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+              className="ev-btn rounded-full border px-2.5 py-0.5 text-[11.5px] hover:bg-[var(--bg-hover)] disabled:opacity-50"
               title="Claudeにタグを提案してもらう"
             >
               {tagBusy ? '生成中…' : 'AIに提案してもらう'}
@@ -146,7 +146,7 @@ export function AiPanel({ pageId }: { pageId: string }) {
               {applied.map((t) => (
                 <span
                   key={t.name}
-                  className="flex items-center gap-1 rounded px-2 py-0.5 text-[12px]"
+                  className="ev-anim-pop flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px]"
                   style={{ background: 'var(--accent-soft)', color: 'var(--accent-text)' }}
                 >
                   #{t.name}
@@ -181,7 +181,7 @@ export function AiPanel({ pageId }: { pageId: string }) {
                       key={t.name}
                       title={t.reason}
                       onClick={() => void toggleTag(t.name, true)}
-                      className="flex items-center gap-1 rounded border border-dashed px-2 py-0.5 text-[12px] hover:bg-[var(--bg-hover)]"
+                      className="ev-lift flex items-center gap-1 rounded-full border border-dashed px-2.5 py-0.5 text-[12px] hover:bg-[var(--bg-hover)]"
                       style={{ color: 'var(--text-muted)' }}
                     >
                       <IconPlus size={10} />
@@ -199,7 +199,7 @@ export function AiPanel({ pageId }: { pageId: string }) {
       </section>
 
       {aiEnabled === false ? (
-        <section className="rounded-lg border p-3" style={{ background: 'var(--bg-subtle)' }}>
+        <section className="ev-glass ev-glass-edge relative rounded-xl border p-3">
           <h3 className="mb-1 flex items-center gap-1.5 text-[13px] font-medium">
             <IconSparkles size={14} />
             AI機能は未設定です
@@ -223,7 +223,7 @@ export function AiPanel({ pageId }: { pageId: string }) {
               <button
                 onClick={makeSummary}
                 disabled={summaryBusy}
-                className="rounded border px-2 py-0.5 text-[11.5px] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                className="ev-btn rounded-full border px-2.5 py-0.5 text-[11.5px] hover:bg-[var(--bg-hover)] disabled:opacity-50"
               >
                 {summaryBusy ? '生成中…' : '生成'}
               </button>

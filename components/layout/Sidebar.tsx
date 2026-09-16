@@ -62,16 +62,18 @@ export function Sidebar({ onOpenSearch, tree, reloadTree, onClose }: Props) {
   );
 
   return (
-    <aside
-      className="flex h-full w-[260px] shrink-0 flex-col border-r text-[14px]"
-      style={{ background: 'var(--bg-sidebar)' }}
-    >
+    <aside className="ev-glass-bar flex h-full w-[260px] shrink-0 flex-col border-r text-[14px]">
       <div className="flex items-center gap-2 px-3 pt-3 pb-2">
         <Logo size={22} />
-        <span className="font-semibold tracking-tight">Evernotian</span>
+        <span
+          className="bg-clip-text font-semibold tracking-tight text-transparent"
+          style={{ backgroundImage: 'linear-gradient(120deg, var(--tint-a), var(--tint-b) 60%, var(--tint-c))' }}
+        >
+          Evernotian
+        </span>
         <button
           onClick={toggleTheme}
-          className="ml-auto rounded p-1.5 hover:bg-[var(--bg-hover)]"
+          className="ev-btn ml-auto rounded-lg p-1.5 hover:bg-[var(--bg-hover)]"
           style={{ color: 'var(--text-muted)' }}
           aria-label={dark ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
           title={dark ? 'ライトモード' : 'ダークモード'}
@@ -81,7 +83,7 @@ export function Sidebar({ onOpenSearch, tree, reloadTree, onClose }: Props) {
         {onClose && (
           <button
             onClick={onClose}
-            className="rounded p-1.5 hover:bg-[var(--bg-hover)] lg:hidden"
+            className="ev-btn rounded-lg p-1.5 hover:bg-[var(--bg-hover)] lg:hidden"
             style={{ color: 'var(--text-muted)' }}
             aria-label="メニューを閉じる"
           >
@@ -93,13 +95,13 @@ export function Sidebar({ onOpenSearch, tree, reloadTree, onClose }: Props) {
       <nav className="px-2 pb-2">
         <button
           onClick={onOpenSearch}
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-[var(--bg-hover)]"
+          className="ev-row flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--bg-hover)]"
           style={{ color: 'var(--text-muted)' }}
         >
           <IconSearch size={16} />
           <span>検索</span>
           <kbd
-            className="ml-auto rounded border px-1.5 py-0.5 text-[11px]"
+            className="ml-auto rounded-md border px-1.5 py-0.5 text-[11px]"
             style={{ color: 'var(--text-faint)' }}
           >
             ⌘K
@@ -118,7 +120,7 @@ export function Sidebar({ onOpenSearch, tree, reloadTree, onClose }: Props) {
         </span>
         <button
           onClick={() => createPage(null)}
-          className="rounded p-1 hover:bg-[var(--bg-hover)]"
+          className="ev-btn rounded-md p-1 hover:bg-[var(--bg-hover)]"
           style={{ color: 'var(--text-muted)' }}
           title="新しいノート"
           aria-label="新しいノート"
@@ -131,7 +133,7 @@ export function Sidebar({ onOpenSearch, tree, reloadTree, onClose }: Props) {
         {tree.length === 0 ? (
           <button
             onClick={() => createPage(null)}
-            className="w-full rounded px-2 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"
+            className="ev-row w-full rounded-lg px-2 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"
             style={{ color: 'var(--text-faint)' }}
           >
             最初のノートを作成…
@@ -163,11 +165,10 @@ function NavLink({
   return (
     <Link
       href={href}
-      className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-[var(--bg-hover)]"
-      style={{
-        color: active ? 'var(--text)' : 'var(--text-muted)',
-        background: active ? 'var(--bg-hover)' : undefined,
-      }}
+      className={`ev-row flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--bg-hover)]${
+        active ? ' ev-selected' : ''
+      }`}
+      style={{ color: active ? 'var(--accent-text)' : 'var(--text-muted)' }}
     >
       {icon}
       <span>{label}</span>
@@ -203,15 +204,14 @@ function TreeItem({
   return (
     <div>
       <div
-        className="group flex items-center gap-1 rounded pr-1 hover:bg-[var(--bg-hover)]"
-        style={{
-          paddingLeft: depth * 12,
-          background: active ? 'var(--bg-active)' : undefined,
-        }}
+        className={`ev-row group flex items-center gap-1 rounded-lg pr-1 hover:bg-[var(--bg-hover)]${
+          active ? ' ev-selected' : ''
+        }`}
+        style={{ paddingLeft: depth * 12 }}
       >
         <button
           onClick={() => setExpanded((e) => ({ ...e, [node.id]: !isOpen }))}
-          className="rounded p-0.5 hover:bg-[var(--bg-active)]"
+          className="rounded-md p-0.5 hover:bg-[var(--bg-active)]"
           style={{ color: 'var(--text-faint)', visibility: hasChildren ? 'visible' : 'hidden' }}
           aria-label={isOpen ? '折りたたむ' : '展開する'}
         >
@@ -229,7 +229,7 @@ function TreeItem({
 
         <button
           onClick={() => onCreateChild(node.id)}
-          className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-active)]"
+          className="rounded-md p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-active)]"
           style={{ color: 'var(--text-muted)' }}
           title="子ページを追加"
           aria-label="子ページを追加"
@@ -238,7 +238,7 @@ function TreeItem({
         </button>
         <button
           onClick={remove}
-          className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--bg-active)]"
+          className="rounded-md p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--bg-active)]"
           style={{ color: 'var(--text-muted)' }}
           title="ゴミ箱に移動"
           aria-label="ゴミ箱に移動"

@@ -58,26 +58,26 @@ export const SuggestionPopup = forwardRef<PopupHandle, Props>(function Suggestio
   if (items.length === 0) {
     return (
       <div
-        className="w-64 rounded-lg border px-3 py-2.5 text-[13px]"
-        style={{ background: 'var(--bg)', boxShadow: 'var(--shadow)', color: 'var(--text-faint)' }}
+        className="ev-glass-raised ev-glass-edge ev-anim-pop w-64 rounded-xl border px-3 py-2.5 text-[13px]"
+        style={{ color: 'var(--text-faint)' }}
       >
         {empty}
       </div>
     );
   }
 
+  // No ev-glass-edge on this one: it scrolls, and a ring positioned against
+  // the padding box of a scroll container scrolls away with the content.
   return (
-    <div
-      className="max-h-72 w-72 overflow-y-auto rounded-lg border py-1"
-      style={{ background: 'var(--bg)', boxShadow: 'var(--shadow)' }}
-    >
+    <div className="ev-glass-raised ev-anim-pop max-h-72 w-72 overflow-y-auto rounded-xl border py-1">
       {items.map((item, i) => (
         <button
           key={item.key}
           onMouseEnter={() => setActive(i)}
           onClick={() => onSelect(i)}
-          className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left"
-          style={{ background: i === active ? 'var(--bg-hover)' : undefined }}
+          className={`ev-row flex w-full items-center gap-2.5 px-3 py-1.5 text-left${
+            i === active ? ' ev-selected' : ''
+          }`}
         >
           {item.leading}
           <span className="min-w-0 flex-1">

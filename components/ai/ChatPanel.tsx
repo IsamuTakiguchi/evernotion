@@ -133,7 +133,7 @@ export function ChatPanel() {
           <IconSparkles size={22} />
           AIチャット
         </h1>
-        <div className="rounded-lg border p-5" style={{ background: 'var(--bg-subtle)' }}>
+        <div className="ev-glass ev-glass-edge relative rounded-2xl border p-5">
           <p className="mb-3 text-[14px] leading-relaxed">
             Claude APIキーが未設定のため、チャットは利用できません。
           </p>
@@ -143,8 +143,7 @@ export function ChatPanel() {
           </p>
           <Link
             href="/settings"
-            className="inline-block rounded px-3 py-1.5 text-[13px] text-white"
-            style={{ background: 'var(--accent)' }}
+            className="ev-btn ev-btn-primary inline-block rounded-lg px-3.5 py-2 text-[13px]"
           >
             設定画面でAPIキーを登録
           </Link>
@@ -169,7 +168,7 @@ export function ChatPanel() {
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-4">
         {turns.length === 0 && (
-          <div className="rounded-lg border p-5 text-[13.5px] leading-relaxed" style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)' }}>
+          <div className="ev-glass ev-glass-edge ev-anim-rise relative rounded-2xl border p-5 text-[13.5px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
             <p className="mb-2">保存したノートとPDFの中身だけを根拠に答えます。例えば:</p>
             <ul className="space-y-1">
               <li>・ 「予算はいつ承認された？」</li>
@@ -188,7 +187,10 @@ export function ChatPanel() {
           <div key={i}>
             {turn.role === 'user' ? (
               <div className="flex justify-end">
-                <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-[14px]" style={{ background: 'var(--bg-hover)' }}>
+                <p
+                  className="ev-anim-rise max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-[14px] text-white"
+                  style={{ backgroundImage: 'linear-gradient(135deg, var(--tint-a), var(--tint-b))' }}
+                >
                   {turn.content}
                 </p>
               </div>
@@ -213,7 +215,7 @@ export function ChatPanel() {
       </div>
 
       <div className="border-t py-4">
-        <div className="flex items-end gap-2 rounded-xl border px-3 py-2">
+        <div className="ev-glass ev-glass-edge relative flex items-end gap-2 rounded-2xl border px-3 py-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -233,8 +235,7 @@ export function ChatPanel() {
           <button
             onClick={() => void send()}
             disabled={busy || !input.trim()}
-            className="rounded-lg px-3 py-1.5 text-[13px] text-white disabled:opacity-40"
-            style={{ background: 'var(--accent)' }}
+            className="ev-btn ev-btn-primary rounded-lg px-3.5 py-1.5 text-[13px] disabled:opacity-40"
           >
             {busy ? '生成中' : '送信'}
           </button>
@@ -256,7 +257,7 @@ function SourceChip({ source }: { source: Source }) {
     <Link
       href={href}
       title={source.text.slice(0, 200)}
-      className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] hover:bg-[var(--bg-hover)]"
+      className="ev-glass ev-lift flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11.5px] hover:bg-[var(--bg-hover)]"
       style={{ color: 'var(--text-muted)' }}
     >
       {source.kind === 'pdf' ? <IconPdf size={11} /> : <IconFile size={11} />}

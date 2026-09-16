@@ -83,13 +83,13 @@ export function ClaudePanel() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="用途（例: 自宅のPC）"
-          className="rounded border px-2.5 py-1.5 text-[13px] outline-none focus:border-[var(--accent)]"
+          className="rounded-lg border px-2.5 py-1.5 text-[13px] outline-none transition-colors focus:border-[var(--accent)]"
           style={{ background: 'var(--bg)' }}
         />
         <button
           onClick={() => void issue()}
           disabled={busy}
-          className="flex items-center gap-1.5 rounded border px-3 py-1.5 text-[13px] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+          className="ev-btn ev-btn-primary flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] disabled:opacity-50"
         >
           {busy && <IconSpinner size={13} />}
           トークンを発行
@@ -100,7 +100,7 @@ export function ClaudePanel() {
 
       {secret && (
         <div
-          className="mt-4 rounded border px-3 py-3"
+          className="ev-glass ev-glass-edge ev-anim-rise relative mt-4 rounded-xl border px-3 py-3"
           style={{ borderColor: 'var(--accent)', background: 'var(--bg-subtle)' }}
         >
           <p className="text-[13px] font-medium">
@@ -124,7 +124,7 @@ export function ClaudePanel() {
               setCopied(true);
               setTimeout(() => setCopied(false), 2000);
             }}
-            className="mt-2 rounded border px-2.5 py-1 text-[12px] hover:bg-[var(--bg-hover)]"
+            className="ev-btn rounded-lg border px-2.5 py-1 text-[12px] hover:bg-[var(--bg-hover)] mt-2"
           >
             {copied ? 'コピーしました' : 'コマンドをコピー'}
           </button>
@@ -155,7 +155,7 @@ export function ClaudePanel() {
       {live.length > 0 && (
         <div className="mt-4 space-y-1.5">
           {live.map((token) => (
-            <div key={token.id} className="flex items-center gap-2 rounded border px-3 py-2 text-[13px]">
+            <div key={token.id} className="ev-glass ev-lift flex items-center gap-2 rounded-xl border px-3 py-2 text-[13px]">
               <span className="font-medium">{token.name || '（名前なし）'}</span>
               <code className="text-[12px]" style={{ color: 'var(--text-faint)' }}>
                 {token.prefix}…
@@ -165,7 +165,7 @@ export function ClaudePanel() {
               </span>
               <button
                 onClick={() => void revoke(token.id)}
-                className="rounded border px-2 py-0.5 text-[12px] hover:bg-[var(--bg-hover)]"
+                className="ev-btn rounded-lg border px-2 py-0.5 text-[12px] hover:bg-[var(--bg-hover)]"
                 style={{ color: 'var(--danger)' }}
               >
                 失効

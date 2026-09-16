@@ -31,56 +31,73 @@ export default async function LoginPage({
 
   return (
     <Suspense fallback={null}>
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="w-full max-w-sm">
-          <div className="mb-7 flex items-center gap-3">
+      {/*
+        This page is rendered outside the app shell, so it brings its own
+        backdrop. It is also the first thing anybody sees, which is reason
+        enough to turn the brand's own colours up here rather than keep them
+        at the whisper the rest of the app uses.
+      */}
+      <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4">
+        <div className="ev-ambient" style={{ opacity: 0.4 }} aria-hidden="true" />
+
+        <div className="ev-anim-rise relative z-10 w-full max-w-sm">
+          <div className="mb-6 flex items-center gap-3">
             <Logo size={40} />
             <div>
-              <h1 className="text-xl font-semibold tracking-tight">Evernotian</h1>
+              <h1
+                className="bg-clip-text text-xl font-semibold tracking-tight text-transparent"
+                style={{ backgroundImage: 'linear-gradient(120deg, var(--tint-a), var(--tint-b) 55%, var(--tint-c))' }}
+              >
+                Evernotian
+              </h1>
               <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
                 ノート、PDF全文検索、第2の脳をひとつに
               </p>
             </div>
           </div>
 
-          {error && (
-            <p
-              className="mb-4 rounded-lg border px-3 py-2.5 text-[13px] leading-relaxed"
-              style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
-            >
-              {ERRORS[error] ?? 'ログインに失敗しました。'}
-            </p>
-          )}
-
-          {mode === 'google' ? (
-            <>
-              <a
-                href={startUrl}
-                className="flex w-full items-center justify-center gap-2.5 rounded-lg border px-4 py-2.5 text-[14px] font-medium hover:bg-[var(--bg-hover)]"
-                style={{ background: 'var(--bg)' }}
+          <div className="ev-glass ev-glass-edge relative rounded-2xl border p-5">
+            {error && (
+              <p
+                className="mb-4 rounded-lg border px-3 py-2.5 text-[13px] leading-relaxed"
+                style={{
+                  borderColor: 'var(--danger)',
+                  color: 'var(--danger)',
+                  background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
+                }}
               >
-                <GoogleMark />
-                Googleでログイン
-              </a>
-              <p className="mt-6 text-[12px] leading-relaxed" style={{ color: 'var(--text-faint)' }}>
-                許可されたGoogleアカウントだけがログインできます。
-                ノートとPDFはアカウントごとに分かれていて、他の人からは見えません。
+                {ERRORS[error] ?? 'ログインに失敗しました。'}
               </p>
-            </>
-          ) : (
-            <div
-              className="rounded-lg border px-3 py-3 text-[13px] leading-relaxed"
-              style={{ borderColor: 'var(--danger)', color: 'var(--text-muted)' }}
-            >
-              <p style={{ color: 'var(--danger)' }}>ログインが設定されていません。</p>
-              <p className="mt-2">
-                この環境は公開されていますが、Googleログインが未設定のため、
-                安全側に倒して何も表示していません。
-                <code>GOOGLE_CLIENT_ID</code>、<code>GOOGLE_CLIENT_SECRET</code>、
-                <code>EVERNOTION_ALLOWED_EMAILS</code> を設定してください。
-              </p>
-            </div>
-          )}
+            )}
+
+            {mode === 'google' ? (
+              <>
+                <a
+                  href={startUrl}
+                  className="ev-btn ev-btn-primary flex w-full items-center justify-center gap-2.5 rounded-xl border px-4 py-3 text-[14px] font-medium"
+                >
+                  <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full bg-white">
+                    <GoogleMark />
+                  </span>
+                  Googleでログイン
+                </a>
+                <p className="mt-5 text-[12px] leading-relaxed" style={{ color: 'var(--text-faint)' }}>
+                  許可されたGoogleアカウントだけがログインできます。
+                  ノートとPDFはアカウントごとに分かれていて、他の人からは見えません。
+                </p>
+              </>
+            ) : (
+              <div className="text-[13px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                <p style={{ color: 'var(--danger)' }}>ログインが設定されていません。</p>
+                <p className="mt-2">
+                  この環境は公開されていますが、Googleログインが未設定のため、
+                  安全側に倒して何も表示していません。
+                  <code>GOOGLE_CLIENT_ID</code>、<code>GOOGLE_CLIENT_SECRET</code>、
+                  <code>EVERNOTION_ALLOWED_EMAILS</code> を設定してください。
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </Suspense>

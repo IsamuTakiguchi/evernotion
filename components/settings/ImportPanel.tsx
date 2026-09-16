@@ -92,7 +92,7 @@ export function ImportPanel() {
             const file = e.target.files?.[0];
             if (file) void upload(file);
           }}
-          className="text-[13px] file:mr-2 file:rounded file:border file:px-3 file:py-1.5 file:text-[13px] disabled:opacity-50"
+          className="text-[13px] file:mr-2 file:rounded-lg file:border file:px-3 file:py-1.5 file:text-[13px] disabled:opacity-50"
         />
         {uploading && <IconSpinner size={14} />}
       </div>
@@ -117,7 +117,7 @@ function ImportRow({ job }: { job: ImportProgress }) {
   const pct = job.total > 0 ? Math.min(100, Math.round((job.done / job.total) * 100)) : null;
 
   return (
-    <div className="rounded border px-3 py-2 text-[13px]">
+    <div className="ev-glass ev-glass-edge relative rounded-xl border px-3 py-2 text-[13px]">
       <div className="flex items-center gap-2">
         {running && <IconSpinner size={13} />}
         <span className="font-medium">{decodeURIComponent(job.filename)}</span>
@@ -130,7 +130,7 @@ function ImportRow({ job }: { job: ImportProgress }) {
             ? `読み込み中… ノート ${job.notes} 件`
             : `${job.done} / ${job.total} 件`}
           {pct !== null && (
-            <div className="mt-1 h-1 w-full overflow-hidden rounded" style={{ background: 'var(--bg-subtle)' }}>
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full" style={{ background: 'var(--bg-hover)' }}>
               <div className="h-full" style={{ width: `${pct}%`, background: 'var(--accent)' }} />
             </div>
           )}

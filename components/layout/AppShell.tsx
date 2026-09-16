@@ -68,9 +68,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (bare) return <>{children}</>;
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="ev-ground relative flex h-screen overflow-hidden">
+      {/*
+        What the glass refracts. Everything above it is translucent to some
+        degree, so this is the colour that shows through the sidebar, the
+        palette and the panels — without it they would all be plain grey.
+      */}
+      <div className="ev-ambient" aria-hidden="true" />
+
       {/* Permanent column from lg up. */}
-      <div className="hidden lg:flex">
+      <div className="relative z-10 hidden lg:flex">
         <Sidebar onOpenSearch={() => setSearchOpen(true)} tree={tree} reloadTree={reloadTree} />
       </div>
 
@@ -78,11 +85,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {navOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div
-            className="absolute inset-0 bg-black/40"
+            className="ev-anim-fade absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setNavOpen(false)}
             aria-hidden="true"
           />
-          <div className="absolute left-0 top-0 h-full shadow-xl">
+          <div className="ev-anim-slide absolute left-0 top-0 h-full shadow-2xl">
             <Sidebar
               onOpenSearch={() => {
                 setNavOpen(false);
@@ -96,15 +103,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         {/* Mobile top bar: the only way to reach navigation and search there. */}
-        <header
-          className="flex items-center gap-2 border-b px-3 py-2 lg:hidden"
-          style={{ background: 'var(--bg-sidebar)' }}
-        >
+        <header className="ev-glass-bar flex items-center gap-2 border-b px-3 py-2 lg:hidden">
           <button
             onClick={() => setNavOpen(true)}
-            className="rounded p-1.5 hover:bg-[var(--bg-hover)]"
+            className="ev-btn rounded-lg p-1.5 hover:bg-[var(--bg-hover)]"
             style={{ color: 'var(--text-muted)' }}
             aria-label="メニューを開く"
           >
@@ -114,7 +118,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="text-[14px] font-semibold tracking-tight">Evernotian</span>
           <button
             onClick={() => setSearchOpen(true)}
-            className="ml-auto rounded p-1.5 hover:bg-[var(--bg-hover)]"
+            className="ev-btn ml-auto rounded-lg p-1.5 hover:bg-[var(--bg-hover)]"
             style={{ color: 'var(--text-muted)' }}
             aria-label="検索"
           >

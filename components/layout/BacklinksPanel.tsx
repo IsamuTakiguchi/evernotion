@@ -25,7 +25,7 @@ export function BacklinksPanel({
             <Link
               key={b.id}
               href={`/p/${b.id}`}
-              className="block rounded border px-2.5 py-2 hover:bg-[var(--bg-hover)]"
+              className="ev-glass ev-lift block rounded-lg border px-2.5 py-2 hover:bg-[var(--bg-hover)]"
             >
               <span className="flex items-center gap-1.5 text-[13px] font-medium">
                 {b.icon ? <span>{b.icon}</span> : <IconFile size={12} />}
@@ -48,7 +48,7 @@ export function BacklinksPanel({
             {unresolved.map((t) => (
               <span
                 key={t}
-                className="rounded border border-dashed px-2 py-0.5 text-[12px]"
+                className="ev-lift rounded-full border border-dashed px-2.5 py-0.5 text-[12px]"
                 style={{ color: 'var(--text-faint)' }}
               >
                 {t}
